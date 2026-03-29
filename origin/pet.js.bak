@@ -1,0 +1,1187 @@
+/* ============================================
+   可自定义桌宠 - 核心引擎
+   参考 BongoCat 项目结构设计
+   ============================================ */
+
+;(function () {
+  'use strict'
+
+  // ==========================================
+  // 配置
+  // ==========================================
+  const DEFAULT_CONFIG = {
+    size: 200,
+    opacity: 100,
+    speed: 100,
+    mirror: false,
+    follow: true,
+    sleepDelay: 30,
+    posX: window.innerWidth - 240,
+    posY: window.innerHeight - 240,
+  }
+
+  const SPRITE_SIZE = 256
+  const STORAGE_KEY = 'desktop-pet-config'
+  const IMAGES_KEY = 'desktop-pet-images'
+
+  // ==========================================
+  // 默认猫咪绘制器（BongoCat 风格）
+  // ==========================================
+  class DefaultCatRenderer {
+    /**
+     * 在 canvas 上绘制 BongoCat 风格猫咪
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {number} size - 画布尺寸
+     * @param {object} state - 动画状态
+     */
+    static draw(ctx, size, state) {
+      const s = size / SPRITE_SIZE
+      ctx.save()
+      ctx.scale(s, s)
+
+      const cx = 128 // 中心 X
+      const breathOffset = state.breathe * 3
+      const tiltAngle = state.tilt * 0.05
+
+      ctx.save()
+      ctx.translate(cx, 140)
+      ctx.rotate(tiltAngle)
+      ctx.translate(-cx, -140)
+
+      // 身体
+      this.drawBody(ctx, cx, breathOffset, state)
+      // 耳朵
+      this.drawEars(ctx, cx, breathOffset, state)
+      // 脸
+      this.drawFace(ctx, cx, breathOffset, state)
+      // 爪子
+      this.drawPaws(ctx, cx, breathOffset, state)
+
+      ctx.restore()
+      ctx.restore()
+    }
+
+    static drawBody(ctx, cx, breathOffset, state) {
+      const bodyY = 100 + breathOffset
+      ctx.fillStyle = '#f5f0eb'
+      ctx.strokeStyle = '#ccc'
+      ctx.lineWidth = 2
+
+      ctx.beginPath()
+      ctx.ellipse(cx, bodyY + 60, 80, 70 - breathOffset * 0.5, 0, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+
+      // 腹部高光
+      ctx.fillStyle = '#faf7f4'
+      ctx.beginPath()
+      ctx.ellipse(cx, bodyY + 68, 50, 42, 0, 0, Math.PI * 2)
+      ctx.fill()
+    }
+
+    static drawEars(ctx, cx, breathOffset, state) {
+      const earY = 56 + breathOffset
+
+      // 左耳
+      ctx.fillStyle = '#f5f0eb'
+      ctx.strokeStyle = '#ccc'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(cx - 55, earY + 20)
+      ctx.lineTo(cx - 70, earY - 28)
+      ctx.lineTo(cx - 25, earY + 5)
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+
+      // 左耳内部
+      ctx.fillStyle = '#ffb6c1'
+      ctx.beginPath()
+      ctx.moveTo(cx - 55, earY + 14)
+      ctx.lineTo(cx - 63, earY - 16)
+      ctx.lineTo(cx - 33, earY + 5)
+      ctx.closePath()
+      ctx.fill()
+
+      // 右耳
+      ctx.fillStyle = '#f5f0eb'
+      ctx.strokeStyle = '#ccc'
+      ctx.beginPath()
+      ctx.moveTo(cx + 55, earY + 20)
+      ctx.lineTo(cx + 70, earY - 28)
+      ctx.lineTo(cx + 25, earY + 5)
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+
+      // 右耳内部
+      ctx.fillStyle = '#ffb6c1'
+      ctx.beginPath()
+      ctx.moveTo(cx + 55, earY + 14)
+      ctx.lineTo(cx + 63, earY - 16)
+      ctx.lineTo(cx + 33, earY + 5)
+      ctx.closePath()
+      ctx.fill()
+    }
+
+    static drawFace(ctx, cx, breathOffset, state) {
+      const faceY = 100 + breathOffset
+
+      // 头
+      ctx.fillStyle = '#f5f0eb'
+      ctx.strokeStyle = '#ccc'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.ellipse(cx, faceY, 68, 52, 0, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+
+      // 眼睛
+      const eyeBaseY = faceY - 5
+      const pupilOffsetX = state.lookX * 6
+      const pupilOffsetY = state.lookY * 4
+
+      if (state.eyeOpen > 0.1) {
+        // 左眼
+        ctx.fillStyle = '#333'
+        ctx.beginPath()
+        const leftEyeH = 12 * state.eyeOpen
+        ctx.ellipse(cx - 22 + pupilOffsetX * 0.3, eyeBaseY + pupilOffsetY * 0.3, 10, leftEyeH, 0, 0, Math.PI * 2)
+        ctx.fill()
+
+        // 左眼瞳孔
+        ctx.fillStyle = '#111'
+        ctx.beginPath()
+        ctx.ellipse(cx - 22 + pupilOffsetX, eyeBaseY + pupilOffsetY, 5, Math.min(6, leftEyeH * 0.6), 0, 0, Math.PI * 2)
+        ctx.fill()
+
+        // 左眼高光
+        ctx.fillStyle = 'rgba(255,255,255,0.8)'
+        ctx.beginPath()
+        ctx.ellipse(cx - 19 + pupilOffsetX * 0.7, eyeBaseY - 3 + pupilOffsetY * 0.5, 3, 3 * state.eyeOpen, 0, 0, Math.PI * 2)
+        ctx.fill()
+
+        // 右眼
+        ctx.fillStyle = '#333'
+        ctx.beginPath()
+        const rightEyeH = 12 * state.eyeOpen
+        ctx.ellipse(cx + 22 + pupilOffsetX * 0.3, eyeBaseY + pupilOffsetY * 0.3, 10, rightEyeH, 0, 0, Math.PI * 2)
+        ctx.fill()
+
+        // 右眼瞳孔
+        ctx.fillStyle = '#111'
+        ctx.beginPath()
+        ctx.ellipse(cx + 22 + pupilOffsetX, eyeBaseY + pupilOffsetY, 5, Math.min(6, rightEyeH * 0.6), 0, 0, Math.PI * 2)
+        ctx.fill()
+
+        // 右眼高光
+        ctx.fillStyle = 'rgba(255,255,255,0.8)'
+        ctx.beginPath()
+        ctx.ellipse(cx + 25 + pupilOffsetX * 0.7, eyeBaseY - 3 + pupilOffsetY * 0.5, 3, 3 * state.eyeOpen, 0, 0, Math.PI * 2)
+        ctx.fill()
+      } else {
+        // 闭眼（线条）
+        ctx.strokeStyle = '#333'
+        ctx.lineWidth = 2.5
+        ctx.lineCap = 'round'
+
+        ctx.beginPath()
+        ctx.moveTo(cx - 32, eyeBaseY)
+        ctx.quadraticCurveTo(cx - 22, eyeBaseY + 5, cx - 12, eyeBaseY)
+        ctx.stroke()
+
+        ctx.beginPath()
+        ctx.moveTo(cx + 12, eyeBaseY)
+        ctx.quadraticCurveTo(cx + 22, eyeBaseY + 5, cx + 32, eyeBaseY)
+        ctx.stroke()
+      }
+
+      // 鼻子
+      ctx.fillStyle = '#ffb6c1'
+      ctx.beginPath()
+      ctx.ellipse(cx, faceY + 8, 4, 3, 0, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 嘴巴
+      ctx.strokeStyle = '#999'
+      ctx.lineWidth = 1.5
+      ctx.lineCap = 'round'
+
+      if (state.expression === 'happy') {
+        // 开心嘴巴（微笑）
+        ctx.beginPath()
+        ctx.moveTo(cx - 10, faceY + 14)
+        ctx.quadraticCurveTo(cx, faceY + 22, cx + 10, faceY + 14)
+        ctx.stroke()
+      } else if (state.expression === 'surprised') {
+        // 惊讶嘴巴（O 形）
+        ctx.fillStyle = '#ff9999'
+        ctx.beginPath()
+        ctx.ellipse(cx, faceY + 16, 6, 8, 0, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.strokeStyle = '#999'
+        ctx.stroke()
+      } else {
+        // 默认嘴巴（小 w）
+        ctx.beginPath()
+        ctx.moveTo(cx - 8, faceY + 14)
+        ctx.quadraticCurveTo(cx - 4, faceY + 18, cx, faceY + 14)
+        ctx.quadraticCurveTo(cx + 4, faceY + 18, cx + 8, faceY + 14)
+        ctx.stroke()
+      }
+
+      // 腮红
+      ctx.fillStyle = 'rgba(255, 182, 193, 0.25)'
+      ctx.beginPath()
+      ctx.ellipse(cx - 38, faceY + 8, 12, 7, -0.1, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.beginPath()
+      ctx.ellipse(cx + 38, faceY + 8, 12, 7, 0.1, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 胡须
+      ctx.strokeStyle = '#ccc'
+      ctx.lineWidth = 1
+      // 左侧胡须
+      ctx.beginPath()
+      ctx.moveTo(cx - 40, faceY + 5)
+      ctx.lineTo(cx - 68, faceY - 2)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(cx - 40, faceY + 10)
+      ctx.lineTo(cx - 68, faceY + 10)
+      ctx.stroke()
+      // 右侧胡须
+      ctx.beginPath()
+      ctx.moveTo(cx + 40, faceY + 5)
+      ctx.lineTo(cx + 68, faceY - 2)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(cx + 40, faceY + 10)
+      ctx.lineTo(cx + 68, faceY + 10)
+      ctx.stroke()
+
+      // 睡觉时画 zzZ
+      if (state.expression === 'sleep') {
+        ctx.font = 'bold 16px sans-serif'
+        ctx.fillStyle = 'rgba(100, 100, 200, 0.6)'
+        const zzzPhase = (Date.now() / 1000) % 3
+        ctx.save()
+        ctx.translate(cx + 50, faceY - 30 - zzzPhase * 8)
+        ctx.globalAlpha = 1 - zzzPhase / 3
+        ctx.fillText('z', 0, 0)
+        ctx.fillText('z', 12, -12)
+        ctx.font = 'bold 20px sans-serif'
+        ctx.fillText('Z', 24, -28)
+        ctx.restore()
+      }
+    }
+
+    static drawPaws(ctx, cx, breathOffset, state) {
+      const pawY = 170 + breathOffset
+
+      // 左爪
+      ctx.fillStyle = '#f5f0eb'
+      ctx.strokeStyle = '#ccc'
+      ctx.lineWidth = 2
+
+      const leftPawX = cx - 45 + (state.pawLeftX || 0) * 10
+      const leftPawY = pawY + (state.pawLeftY || 0) * 5
+
+      ctx.beginPath()
+      ctx.ellipse(leftPawX, leftPawY, 22, 14, -0.2, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+
+      // 左爪肉垫
+      ctx.fillStyle = '#ffccd5'
+      ctx.beginPath()
+      ctx.ellipse(leftPawX, leftPawY + 2, 10, 7, 0, 0, Math.PI * 2)
+      ctx.fill()
+      // 小肉垫
+      ctx.beginPath()
+      ctx.ellipse(leftPawX - 7, leftPawY - 4, 4, 3, -0.3, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.beginPath()
+      ctx.ellipse(leftPawX + 7, leftPawY - 4, 4, 3, 0.3, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 右爪
+      ctx.fillStyle = '#f5f0eb'
+      ctx.strokeStyle = '#ccc'
+
+      const rightPawX = cx + 45 + (state.pawRightX || 0) * 10
+      const rightPawY = pawY + (state.pawRightY || 0) * 5
+
+      ctx.beginPath()
+      ctx.ellipse(rightPawX, rightPawY, 22, 14, 0.2, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+
+      // 右爪肉垫
+      ctx.fillStyle = '#ffccd5'
+      ctx.beginPath()
+      ctx.ellipse(rightPawX, rightPawY + 2, 10, 7, 0, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.beginPath()
+      ctx.ellipse(rightPawX - 7, rightPawY - 4, 4, 3, -0.3, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.beginPath()
+      ctx.ellipse(rightPawX + 7, rightPawY - 4, 4, 3, 0.3, 0, Math.PI * 2)
+      ctx.fill()
+
+      // 尾巴
+      const tailWag = Math.sin(Date.now() / 300 + state.breathe) * 15
+      ctx.strokeStyle = '#e8e0d8'
+      ctx.lineWidth = 8
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      ctx.moveTo(cx + 55, pawY + 10)
+      ctx.quadraticCurveTo(cx + 90 + tailWag, pawY - 20, cx + 80 + tailWag * 1.5, pawY - 60)
+      ctx.stroke()
+
+      ctx.strokeStyle = '#f5f0eb'
+      ctx.lineWidth = 6
+      ctx.beginPath()
+      ctx.moveTo(cx + 55, pawY + 10)
+      ctx.quadraticCurveTo(cx + 90 + tailWag, pawY - 20, cx + 80 + tailWag * 1.5, pawY - 60)
+      ctx.stroke()
+    }
+  }
+
+  // ==========================================
+  // 图片管理器
+  // ==========================================
+  class ImageManager {
+    constructor() {
+      this.images = {} // { stateName: HTMLImageElement }
+      this.imageData = {} // { stateName: base64 string }
+      this.loadFromStorage()
+    }
+
+    loadFromStorage() {
+      try {
+        const saved = localStorage.getItem(IMAGES_KEY)
+        if (saved) {
+          this.imageData = JSON.parse(saved)
+          for (const [state, data] of Object.entries(this.imageData)) {
+            const img = new Image()
+            img.src = data
+            this.images[state] = img
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    saveToStorage() {
+      try {
+        localStorage.setItem(IMAGES_KEY, JSON.stringify(this.imageData))
+      } catch { /* ignore */ }
+    }
+
+    /**
+     * 加载图片文件
+     * @param {File} file
+     * @param {string} stateName
+     * @returns {Promise<{success: boolean, message: string}>}
+     */
+    loadImage(file, stateName) {
+      return new Promise((resolve) => {
+        if (!file.type.startsWith('image/')) {
+          resolve({ success: false, message: '请上传图片文件' })
+          return
+        }
+
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          const img = new Image()
+          img.onload = () => {
+            // 不严格限制尺寸，但给出提示
+            if (img.width !== SPRITE_SIZE || img.height !== SPRITE_SIZE) {
+              console.warn(`图片尺寸为 ${img.width}×${img.height}，建议使用 ${SPRITE_SIZE}×${SPRITE_SIZE}`)
+            }
+            this.images[stateName] = img
+            this.imageData[stateName] = e.target.result
+            this.saveToStorage()
+            resolve({ success: true, message: '替换成功！' })
+          }
+          img.onerror = () => {
+            resolve({ success: false, message: '图片加载失败' })
+          }
+          img.src = e.target.result
+        }
+        reader.readAsDataURL(file)
+      })
+    }
+
+    hasCustomImage(stateName) {
+      return !!this.images[stateName]
+    }
+
+    getImage(stateName) {
+      return this.images[stateName] || null
+    }
+
+    removeImage(stateName) {
+      delete this.images[stateName]
+      delete this.imageData[stateName]
+      this.saveToStorage()
+    }
+
+    removeAll() {
+      this.images = {}
+      this.imageData = {}
+      this.saveToStorage()
+    }
+
+    exportConfig() {
+      return JSON.stringify(this.imageData, null, 2)
+    }
+
+    importConfig(jsonStr) {
+      try {
+        const data = JSON.parse(jsonStr)
+        this.imageData = data
+        this.images = {}
+        for (const [state, dataUrl] of Object.entries(data)) {
+          const img = new Image()
+          img.src = dataUrl
+          this.images[state] = img
+        }
+        this.saveToStorage()
+        return { success: true, message: '导入成功！' }
+      } catch {
+        return { success: false, message: '配置文件格式错误' }
+      }
+    }
+  }
+
+  // ==========================================
+  // 桌宠核心类
+  // ==========================================
+  class DesktopPet {
+    constructor() {
+      // DOM
+      this.container = document.getElementById('pet-container')
+      this.canvas = document.getElementById('pet-canvas')
+      this.ctx = this.canvas.getContext('2d')
+      this.speechBubble = document.getElementById('pet-speech')
+      this.settingsPanel = document.getElementById('settings-panel')
+      this.contextMenu = document.getElementById('context-menu')
+      this.showPetBtn = document.getElementById('show-pet')
+
+      // 管理器
+      this.imageManager = new ImageManager()
+
+      // 配置
+      this.config = { ...DEFAULT_CONFIG }
+      this.loadConfig()
+
+      // 动画状态
+      this.animState = {
+        breathe: 0,
+        eyeOpen: 1,
+        lookX: 0,
+        lookY: 0,
+        tilt: 0,
+        expression: 'idle',
+        pawLeftX: 0,
+        pawLeftY: 0,
+        pawRightX: 0,
+        pawRightY: 0,
+        squish: 0,
+        rotation: 0,
+        customAnimPhase: 0,
+      }
+
+      // 状态
+      this.currentState = 'idle' // idle, follow, dragging, sleeping, reacting, waving, spinning
+      this.isDragging = false
+      this.dragOffset = { x: 0, y: 0 }
+      this.mousePos = { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+      this.lastInteraction = Date.now()
+      this.blinkTimer = 0
+      this.blinkInterval = this.randomBlinkInterval()
+      this.speechTimeout = null
+      this.spinAngle = 0
+      this.wavePhase = 0
+      this.frameCount = 0
+
+      // 目标追踪值（平滑过渡）
+      this.targetLookX = 0
+      this.targetLookY = 0
+      this.targetTilt = 0
+
+      this.init()
+    }
+
+    // ========================================
+    // 初始化
+    // ========================================
+    init() {
+      this.applyConfig()
+      this.bindEvents()
+      this.updatePreviews()
+      this.requestFrame()
+
+      // 打招呼
+      setTimeout(() => this.say('你好呀~ 我是你的桌宠！右键点击查看更多操作 ✨'), 500)
+    }
+
+    loadConfig() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY)
+        if (saved) {
+          Object.assign(this.config, JSON.parse(saved))
+        }
+      } catch { /* ignore */ }
+    }
+
+    saveConfig() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.config))
+      } catch { /* ignore */ }
+    }
+
+    applyConfig() {
+      const { size, opacity, posX, posY, mirror } = this.config
+      const dpr = window.devicePixelRatio || 1
+
+      this.canvas.width = size * dpr
+      this.canvas.height = size * dpr
+      this.canvas.style.width = size + 'px'
+      this.canvas.style.height = size + 'px'
+
+      this.container.style.left = Math.min(posX, window.innerWidth - size) + 'px'
+      this.container.style.top = Math.min(posY, window.innerHeight - size) + 'px'
+      this.container.style.opacity = opacity / 100
+      this.container.style.transform = mirror ? 'scaleX(-1)' : ''
+
+      // 同步 UI 控件
+      this.syncSettingsUI()
+    }
+
+    syncSettingsUI() {
+      const setVal = (id, val) => {
+        const el = document.getElementById(id)
+        if (el) el.value = val
+      }
+      const setDisplay = (id, text) => {
+        const el = document.getElementById(id)
+        if (el) el.textContent = text
+      }
+      const setCheck = (id, checked) => {
+        const el = document.getElementById(id)
+        if (el) el.checked = checked
+      }
+
+      setVal('pet-size', this.config.size)
+      setDisplay('pet-size-value', this.config.size + 'px')
+      setVal('pet-opacity', this.config.opacity)
+      setDisplay('pet-opacity-value', this.config.opacity + '%')
+      setVal('pet-speed', this.config.speed)
+      setDisplay('pet-speed-value', this.config.speed + '%')
+      setVal('pet-sleep-delay', this.config.sleepDelay)
+      setDisplay('pet-sleep-delay-value', this.config.sleepDelay + 's')
+      setCheck('pet-mirror', this.config.mirror)
+      setCheck('pet-follow', this.config.follow)
+    }
+
+    // ========================================
+    // 事件绑定
+    // ========================================
+    bindEvents() {
+      // 鼠标移动追踪
+      document.addEventListener('mousemove', (e) => {
+        this.mousePos = { x: e.clientX, y: e.clientY }
+        this.lastInteraction = Date.now()
+
+        if (this.currentState === 'sleeping') {
+          this.currentState = 'idle'
+          this.animState.expression = 'idle'
+          this.say('嗯..? 我醒啦！')
+        }
+      })
+
+      // 拖拽
+      this.container.addEventListener('mousedown', (e) => {
+        if (e.button === 0) {
+          this.isDragging = true
+          this.currentState = 'dragging'
+          this.container.classList.add('dragging')
+          const rect = this.container.getBoundingClientRect()
+          this.dragOffset = {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+          }
+          this.animState.expression = 'surprised'
+          e.preventDefault()
+        }
+      })
+
+      document.addEventListener('mousemove', (e) => {
+        if (this.isDragging) {
+          const x = e.clientX - this.dragOffset.x
+          const y = e.clientY - this.dragOffset.y
+          this.container.style.left = x + 'px'
+          this.container.style.top = y + 'px'
+          this.config.posX = x
+          this.config.posY = y
+        }
+      })
+
+      document.addEventListener('mouseup', () => {
+        if (this.isDragging) {
+          this.isDragging = false
+          this.currentState = 'idle'
+          this.container.classList.remove('dragging')
+          this.animState.expression = 'idle'
+          this.saveConfig()
+        }
+      })
+
+      // 点击互动
+      this.container.addEventListener('click', (e) => {
+        if (e.detail === 1) {
+          this.onPetClick()
+        }
+      })
+
+      this.container.addEventListener('dblclick', () => {
+        this.onPetDoubleClick()
+      })
+
+      // 右键菜单
+      this.container.addEventListener('contextmenu', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        this.showContextMenu(e.clientX, e.clientY)
+      })
+
+      document.addEventListener('click', (e) => {
+        if (!this.contextMenu.contains(e.target)) {
+          this.hideContextMenu()
+        }
+      })
+
+      document.addEventListener('contextmenu', (e) => {
+        if (!this.container.contains(e.target)) {
+          this.hideContextMenu()
+        }
+      })
+
+      // 右键菜单项
+      document.getElementById('menu-settings').addEventListener('click', () => {
+        this.hideContextMenu()
+        this.openSettings()
+      })
+
+      document.getElementById('menu-reset-pos').addEventListener('click', () => {
+        this.hideContextMenu()
+        this.resetPosition()
+      })
+
+      document.getElementById('menu-wave').addEventListener('click', () => {
+        this.hideContextMenu()
+        this.doWave()
+      })
+
+      document.getElementById('menu-spin').addEventListener('click', () => {
+        this.hideContextMenu()
+        this.doSpin()
+      })
+
+      document.getElementById('menu-sleep').addEventListener('click', () => {
+        this.hideContextMenu()
+        this.doSleep()
+      })
+
+      document.getElementById('menu-hide').addEventListener('click', () => {
+        this.hideContextMenu()
+        this.hidePet()
+      })
+
+      // 显示桌宠按钮
+      this.showPetBtn.addEventListener('click', () => {
+        this.showPet()
+      })
+
+      // 设置面板
+      document.getElementById('close-settings').addEventListener('click', () => {
+        this.closeSettings()
+      })
+
+      // 设置滑块
+      this.bindSlider('pet-size', 'pet-size-value', 'px', (v) => {
+        this.config.size = v
+        this.applyConfig()
+        this.saveConfig()
+      })
+
+      this.bindSlider('pet-opacity', 'pet-opacity-value', '%', (v) => {
+        this.config.opacity = v
+        this.container.style.opacity = v / 100
+        this.saveConfig()
+      })
+
+      this.bindSlider('pet-speed', 'pet-speed-value', '%', (v) => {
+        this.config.speed = v
+        this.saveConfig()
+      })
+
+      this.bindSlider('pet-sleep-delay', 'pet-sleep-delay-value', 's', (v) => {
+        this.config.sleepDelay = v
+        this.saveConfig()
+      })
+
+      // 开关
+      document.getElementById('pet-mirror').addEventListener('change', (e) => {
+        this.config.mirror = e.target.checked
+        this.container.style.transform = e.target.checked ? 'scaleX(-1)' : ''
+        this.saveConfig()
+      })
+
+      document.getElementById('pet-follow').addEventListener('change', (e) => {
+        this.config.follow = e.target.checked
+        this.saveConfig()
+      })
+
+      // 图片上传
+      document.querySelectorAll('.file-input').forEach((input) => {
+        input.addEventListener('change', async (e) => {
+          const file = e.target.files[0]
+          if (!file) return
+          const state = input.dataset.state
+          const result = await this.imageManager.loadImage(file, state)
+          this.say(result.message)
+          this.updatePreviews()
+          input.value = ''
+        })
+      })
+
+      // 重置单个
+      document.querySelectorAll('.btn-reset').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const state = btn.dataset.state
+          this.imageManager.removeImage(state)
+          this.updatePreviews()
+          this.say('已恢复默认形象')
+        })
+      })
+
+      // 批量导入
+      document.getElementById('batch-import').addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files)
+        const states = ['idle', 'happy', 'surprised', 'sleep']
+        for (let i = 0; i < Math.min(files.length, states.length); i++) {
+          await this.imageManager.loadImage(files[i], states[i])
+        }
+        this.updatePreviews()
+        this.say(`已导入 ${Math.min(files.length, states.length)} 张图片`)
+        e.target.value = ''
+      })
+
+      // 导出配置
+      document.getElementById('export-config').addEventListener('click', () => {
+        const data = this.imageManager.exportConfig()
+        const blob = new Blob([data], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'desktop-pet-config.json'
+        a.click()
+        URL.revokeObjectURL(url)
+        this.say('配置已导出！')
+      })
+
+      // 导入配置
+      document.getElementById('import-config').addEventListener('change', (e) => {
+        const file = e.target.files[0]
+        if (!file) return
+        const reader = new FileReader()
+        reader.onload = (ev) => {
+          const result = this.imageManager.importConfig(ev.target.result)
+          this.say(result.message)
+          this.updatePreviews()
+        }
+        reader.readAsText(file)
+        e.target.value = ''
+      })
+
+      // 全部重置
+      document.getElementById('reset-all').addEventListener('click', () => {
+        this.imageManager.removeAll()
+        this.updatePreviews()
+        this.say('已恢复所有默认形象')
+      })
+
+      // 窗口大小变化
+      window.addEventListener('resize', () => {
+        this.clampPosition()
+      })
+    }
+
+    bindSlider(inputId, displayId, unit, callback) {
+      const input = document.getElementById(inputId)
+      const display = document.getElementById(displayId)
+      input.addEventListener('input', () => {
+        const v = parseInt(input.value)
+        display.textContent = v + unit
+        callback(v)
+      })
+    }
+
+    // ========================================
+    // 交互行为
+    // ========================================
+    onPetClick() {
+      this.lastInteraction = Date.now()
+      this.animState.squish = 1
+      this.animState.expression = 'happy'
+
+      const messages = [
+        '喵~ 😺', '嘿嘿，别戳了~', '好舒服喵~',
+        '喵呜！', '再摸摸嘛~', '(开心地转圈)',
+      ]
+      this.say(messages[Math.floor(Math.random() * messages.length)])
+
+      setTimeout(() => {
+        if (this.currentState !== 'sleeping') {
+          this.animState.expression = 'idle'
+        }
+      }, 1500)
+    }
+
+    onPetDoubleClick() {
+      this.lastInteraction = Date.now()
+      this.animState.expression = 'surprised'
+      this.say('哇哦！！ 😲')
+
+      setTimeout(() => {
+        if (this.currentState !== 'sleeping') {
+          this.animState.expression = 'idle'
+        }
+      }, 2000)
+    }
+
+    doWave() {
+      this.currentState = 'waving'
+      this.wavePhase = 0
+      this.say('你好呀~ 👋')
+      setTimeout(() => {
+        this.currentState = 'idle'
+      }, 2000)
+    }
+
+    doSpin() {
+      this.currentState = 'spinning'
+      this.spinAngle = 0
+      this.say('转圈圈~ 🌀')
+      setTimeout(() => {
+        this.currentState = 'idle'
+        this.animState.rotation = 0
+      }, 1500)
+    }
+
+    doSleep() {
+      this.currentState = 'sleeping'
+      this.animState.expression = 'sleep'
+      this.animState.eyeOpen = 0
+      this.say('晚安~ 💤')
+    }
+
+    hidePet() {
+      this.container.classList.add('hidden')
+      this.showPetBtn.classList.remove('hidden')
+    }
+
+    showPet() {
+      this.container.classList.remove('hidden')
+      this.showPetBtn.classList.add('hidden')
+      this.say('我回来啦~ 🐱')
+    }
+
+    resetPosition() {
+      this.config.posX = window.innerWidth - this.config.size - 40
+      this.config.posY = window.innerHeight - this.config.size - 40
+      this.container.style.left = this.config.posX + 'px'
+      this.container.style.top = this.config.posY + 'px'
+      this.saveConfig()
+      this.say('回到原位啦~')
+    }
+
+    clampPosition() {
+      const maxX = window.innerWidth - this.config.size
+      const maxY = window.innerHeight - this.config.size
+      this.config.posX = Math.max(0, Math.min(this.config.posX, maxX))
+      this.config.posY = Math.max(0, Math.min(this.config.posY, maxY))
+      this.container.style.left = this.config.posX + 'px'
+      this.container.style.top = this.config.posY + 'px'
+    }
+
+    say(text) {
+      this.speechBubble.textContent = text
+      this.speechBubble.classList.remove('hidden')
+      this.speechBubble.classList.add('show')
+
+      if (this.speechTimeout) clearTimeout(this.speechTimeout)
+      this.speechTimeout = setTimeout(() => {
+        this.speechBubble.classList.remove('show')
+        setTimeout(() => this.speechBubble.classList.add('hidden'), 300)
+      }, 3000)
+    }
+
+    // ========================================
+    // 菜单
+    // ========================================
+    showContextMenu(x, y) {
+      this.contextMenu.classList.remove('hidden')
+      // 确保菜单不超出视口
+      const rect = this.contextMenu.getBoundingClientRect()
+      const menuW = 170
+      const menuH = 220
+      this.contextMenu.style.left = Math.min(x, window.innerWidth - menuW) + 'px'
+      this.contextMenu.style.top = Math.min(y, window.innerHeight - menuH) + 'px'
+    }
+
+    hideContextMenu() {
+      this.contextMenu.classList.add('hidden')
+    }
+
+    // ========================================
+    // 设置面板
+    // ========================================
+    openSettings() {
+      this.settingsPanel.classList.remove('hidden')
+      this.updatePreviews()
+    }
+
+    closeSettings() {
+      this.settingsPanel.classList.add('hidden')
+    }
+
+    updatePreviews() {
+      const states = ['idle', 'happy', 'surprised', 'sleep']
+      const expressions = ['idle', 'happy', 'surprised', 'sleep']
+
+      states.forEach((state, i) => {
+        const previewEl = document.getElementById('preview-' + state)
+        if (!previewEl) return
+        const canvas = previewEl.querySelector('.preview-canvas')
+        if (!canvas) return
+        const ctx = canvas.getContext('2d')
+        const dpr = window.devicePixelRatio || 1
+        canvas.width = 80 * dpr
+        canvas.height = 80 * dpr
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+        const customImg = this.imageManager.getImage(state)
+        if (customImg && customImg.complete) {
+          ctx.drawImage(customImg, 0, 0, canvas.width, canvas.height)
+        } else {
+          // 绘制默认猫咪小预览
+          ctx.save()
+          const previewState = {
+            breathe: 0,
+            eyeOpen: state === 'sleep' ? 0 : 1,
+            lookX: 0,
+            lookY: 0,
+            tilt: 0,
+            expression: expressions[i],
+            pawLeftX: 0,
+            pawLeftY: 0,
+            pawRightX: 0,
+            pawRightY: 0,
+          }
+          DefaultCatRenderer.draw(ctx, 80 * dpr, previewState)
+          ctx.restore()
+        }
+      })
+    }
+
+    // ========================================
+    // 动画循环
+    // ========================================
+    requestFrame() {
+      requestAnimationFrame(() => this.update())
+    }
+
+    update() {
+      this.frameCount++
+      const speedMul = this.config.speed / 100
+      const now = Date.now()
+      const timeSec = now / 1000
+
+      // 呼吸动画
+      this.animState.breathe = Math.sin(timeSec * 2 * speedMul) * 0.5
+
+      // 眨眼
+      this.blinkTimer += 16 * speedMul
+      if (this.blinkTimer > this.blinkInterval) {
+        this.blinkTimer = 0
+        this.blinkInterval = this.randomBlinkInterval()
+        this.doBlink()
+      }
+
+      // 鼠标跟随
+      if (this.config.follow && this.currentState !== 'sleeping' && this.currentState !== 'dragging') {
+        const rect = this.container.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+        const centerY = rect.top + rect.height / 2
+
+        const dx = this.mousePos.x - centerX
+        const dy = this.mousePos.y - centerY
+        const dist = Math.sqrt(dx * dx + dy * dy)
+
+        // 归一化到 -1 ~ 1
+        const maxDist = Math.max(window.innerWidth, window.innerHeight) * 0.5
+        this.targetLookX = Math.max(-1, Math.min(1, dx / maxDist))
+        this.targetLookY = Math.max(-1, Math.min(1, dy / maxDist))
+        this.targetTilt = this.targetLookX * 3
+      } else {
+        this.targetLookX = 0
+        this.targetLookY = 0
+        this.targetTilt = 0
+      }
+
+      // 平滑插值
+      const lerp = 0.08 * speedMul
+      this.animState.lookX += (this.targetLookX - this.animState.lookX) * lerp
+      this.animState.lookY += (this.targetLookY - this.animState.lookY) * lerp
+      this.animState.tilt += (this.targetTilt - this.animState.tilt) * lerp
+
+      // 挤压恢复
+      if (this.animState.squish > 0) {
+        this.animState.squish *= 0.9
+        if (this.animState.squish < 0.01) this.animState.squish = 0
+      }
+
+      // 特殊状态更新
+      if (this.currentState === 'waving') {
+        this.wavePhase += 0.15 * speedMul
+        this.animState.pawRightX = Math.sin(this.wavePhase * 5) * 1.5
+        this.animState.pawRightY = -Math.abs(Math.sin(this.wavePhase * 3))
+        if (this.wavePhase > Math.PI * 2) {
+          this.animState.pawRightX = 0
+          this.animState.pawRightY = 0
+        }
+      } else {
+        this.animState.pawRightX *= 0.9
+        this.animState.pawRightY *= 0.9
+      }
+
+      if (this.currentState === 'spinning') {
+        this.spinAngle += 12 * speedMul
+        this.animState.rotation = this.spinAngle
+        if (this.spinAngle >= 360) {
+          this.animState.rotation = 0
+          this.spinAngle = 0
+        }
+      }
+
+      // 自动入睡
+      if (this.currentState === 'idle' && (now - this.lastInteraction) > this.config.sleepDelay * 1000) {
+        this.currentState = 'sleeping'
+        this.animState.expression = 'sleep'
+        this.say('好困... 💤')
+      }
+
+      if (this.currentState === 'sleeping') {
+        this.animState.eyeOpen = Math.max(0, this.animState.eyeOpen - 0.05)
+      }
+
+      // 自定义图片动画相位
+      this.animState.customAnimPhase = timeSec * speedMul
+
+      this.render()
+      this.requestFrame()
+    }
+
+    doBlink() {
+      if (this.currentState === 'sleeping') return
+
+      const originalEyeOpen = this.animState.eyeOpen
+      this.animState.eyeOpen = 0
+
+      setTimeout(() => {
+        if (this.currentState !== 'sleeping') {
+          this.animState.eyeOpen = originalEyeOpen || 1
+        }
+      }, 120 + Math.random() * 80)
+    }
+
+    randomBlinkInterval() {
+      return 2000 + Math.random() * 4000
+    }
+
+    // ========================================
+    // 渲染
+    // ========================================
+    render() {
+      const { ctx, canvas } = this
+      const size = Math.min(canvas.width, canvas.height)
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.save()
+
+      // 旋转（转圈动画）
+      if (this.animState.rotation) {
+        ctx.translate(canvas.width / 2, canvas.height / 2)
+        ctx.rotate((this.animState.rotation * Math.PI) / 180)
+        ctx.translate(-canvas.width / 2, -canvas.height / 2)
+      }
+
+      // 挤压效果
+      if (this.animState.squish > 0.01) {
+        const sq = this.animState.squish * 0.15
+        ctx.translate(canvas.width / 2, canvas.height)
+        ctx.scale(1 + sq, 1 - sq)
+        ctx.translate(-canvas.width / 2, -canvas.height)
+      }
+
+      // 确定当前表情对应的状态名
+      const currentExpression = this.animState.expression || 'idle'
+      const customImage = this.imageManager.getImage(currentExpression) || this.imageManager.getImage('idle')
+
+      if (customImage && customImage.complete && customImage.naturalWidth > 0) {
+        // 使用自定义图片渲染
+        this.renderCustomImage(ctx, customImage, size)
+      } else {
+        // 使用默认猫咪渲染
+        DefaultCatRenderer.draw(ctx, size, this.animState)
+      }
+
+      ctx.restore()
+    }
+
+    renderCustomImage(ctx, img, size) {
+      ctx.save()
+
+      // 呼吸浮动效果
+      const floatY = this.animState.breathe * 4
+
+      // 头部跟随鼠标倾斜
+      const tiltAngle = this.animState.tilt * 0.03
+
+      ctx.translate(size / 2, size / 2 + floatY)
+      ctx.rotate(tiltAngle)
+
+      // 绘制自定义图片（保持比例居中）
+      const scale = size / Math.max(img.naturalWidth, img.naturalHeight)
+      const w = img.naturalWidth * scale
+      const h = img.naturalHeight * scale
+
+      ctx.drawImage(img, -w / 2, -h / 2, w, h)
+
+      ctx.restore()
+    }
+  }
+
+  // ==========================================
+  // 启动
+  // ==========================================
+  window.addEventListener('DOMContentLoaded', () => {
+    new DesktopPet()
+  })
+})()

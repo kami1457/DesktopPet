@@ -1,0 +1,40 @@
+{
+  "name": "desktop-pet-exe",
+  "version": "1.0.0",
+  "description": "将现有 HTML 桌宠无改动封装为可直接双击运行的 Windows EXE。",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable",
+    "build:portable": "powershell -ExecutionPolicy Bypass -File .\\build-portable.ps1"
+  },
+  "build": {
+    "appId": "com.local.desktoppet",
+    "productName": "DesktopPet",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "pet.js",
+      "style.css",
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "electron": "^41.1.0",
+    "electron-builder": "^26.8.1"
+  }
+}
