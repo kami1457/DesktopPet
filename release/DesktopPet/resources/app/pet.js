@@ -852,6 +852,8 @@
       this.contextMenu = document.getElementById('context-menu')
       this.showPetBtn = document.getElementById('show-pet')
       this.statusBar = document.getElementById('pet-status-bar')
+      this.statusHideTimer = null
+      this.scheduleStatusBarHide = null
 
       // 管理器
       this.imageManager = new ImageManager()
@@ -928,9 +930,13 @@
       this.lastDragPos = { x: 0, y: 0 }
       this.lastDragTime = 0
       this.isPhysicsActive = false
-      this.gravity = 0.6
-      this.bounceDamping = 0.65
-      this.friction = 0.98
+      this.gravity = 0.42
+      this.bounceDamping = 0.5
+      this.friction = 0.95
+      this.throwVelocityScale = 10
+      this.maxThrowSpeedX = 18
+      this.maxThrowSpeedY = 14
+      this.minThrowSpeed = 2.6
 
       // ★ 好感度系统
       this.affection = {
@@ -1052,6 +1058,7 @@
 
       if (this.statusBar) {
         this.statusBar.classList.toggle('hidden', !showStatus)
+        if (showStatus && typeof this.scheduleStatusBarHide === 'function') this.scheduleStatusBarHide()
       }
 
       this.syncSettingsUI()
@@ -1217,6 +1224,29 @@
     // 事件绑定
     // ========================================
     bindEvents() {
+      const showStatusBar = () => {
+        if (!this.statusBar || !this.config.showStatus) return
+        if (this.statusHideTimer) {
+          clearTimeout(this.statusHideTimer)
+          this.statusHideTimer = null
+        }
+        this.statusBar.classList.add('status-visible')
+      }
+
+      const hideStatusBarLater = () => {
+        if (!this.statusBar) return
+        if (this.statusHideTimer) clearTimeout(this.statusHideTimer)
+        if (!this.config.showStatus) {
+          this.statusBar.classList.remove('status-visible')
+          return
+        }
+        this.statusHideTimer = setTimeout(() => {
+          this.statusBar.classList.remove('status-visible')
+        }, 2200)
+      }
+
+      this.scheduleStatusBarHide = hideStatusBarLater
+
       // 鼠标移动追踪
       document.addEventListener('mousemove', (e) => {
         this.mousePos = { x: e.clientX, y: e.clientY }
@@ -1262,8 +1292,10 @@
           // 计算速度
           const now = Date.now()
           const dt = Math.max(1, now - this.lastDragTime)
-          this.velocity.x = (e.clientX - this.lastDragPos.x) / dt * 16
-          this.velocity.y = (e.clientY - this.lastDragPos.y) / dt * 16
+          const rawVx = (e.clientX - this.lastDragPos.x) / dt * this.throwVelocityScale
+          const rawVy = (e.clientY - this.lastDragPos.y) / dt * this.throwVelocityScale
+          this.velocity.x = Math.max(-this.maxThrowSpeedX, Math.min(this.maxThrowSpeedX, rawVx))
+          this.velocity.y = Math.max(-this.maxThrowSpeedY, Math.min(this.maxThrowSpeedY, rawVy))
           this.lastDragPos = { x: e.clientX, y: e.clientY }
           this.lastDragTime = now
         }
@@ -1276,7 +1308,7 @@
 
           // 物理抛投判定
           const speed = Math.sqrt(this.velocity.x ** 2 + this.velocity.y ** 2)
-          if (this.config.physics && speed > 3) {
+          if (this.config.physics && speed > this.minThrowSpeed) {
             this.isPhysicsActive = true
             this.currentState = 'flying'
             this.animState.expression = 'surprised'
@@ -1296,6 +1328,13 @@
 
       this.container.addEventListener('dblclick', () => {
         this.onPetDoubleClick()
+      })
+
+      this.container.addEventListener('mouseenter', () => {
+        showStatusBar()
+      })
+      this.container.addEventListener('mouseleave', () => {
+        hideStatusBarLater()
       })
 
       // 右键菜单
@@ -1372,6 +1411,16 @@
       document.getElementById('pet-show-status').addEventListener('change', (e) => {
         this.config.showStatus = e.target.checked
         this.statusBar.classList.toggle('hidden', !e.target.checked)
+        if (e.target.checked) {
+          showStatusBar()
+          hideStatusBarLater()
+        } else {
+          if (this.statusHideTimer) {
+            clearTimeout(this.statusHideTimer)
+            this.statusHideTimer = null
+          }
+          this.statusBar.classList.remove('status-visible')
+        }
         this.saveConfig()
       })
 
@@ -1908,13 +1957,25 @@
 
     say(text) {
       this.speechBubble.textContent = text
+      this.speechBubble.classList.remove('below')
       this.speechBubble.classList.remove('hidden')
       this.speechBubble.classList.add('show')
+
+      const petRect = this.container.getBoundingClientRect()
+      const bubbleRect = this.speechBubble.getBoundingClientRect()
+      const topSpace = petRect.top
+      const bottomSpace = window.innerHeight - petRect.bottom
+      if (bubbleRect.height + 12 > topSpace && bottomSpace > topSpace) {
+        this.speechBubble.classList.add('below')
+      }
 
       if (this.speechTimeout) clearTimeout(this.speechTimeout)
       this.speechTimeout = setTimeout(() => {
         this.speechBubble.classList.remove('show')
-        setTimeout(() => this.speechBubble.classList.add('hidden'), 300)
+        setTimeout(() => {
+          this.speechBubble.classList.add('hidden')
+          this.speechBubble.classList.remove('below')
+        }, 300)
       }, 3500)
     }
 
@@ -1923,10 +1984,13 @@
     // ========================================
     showContextMenu(x, y) {
       this.contextMenu.classList.remove('hidden')
-      const menuW = 180
-      const menuH = 320
-      this.contextMenu.style.left = Math.min(x, window.innerWidth - menuW) + 'px'
-      this.contextMenu.style.top = Math.min(y, window.innerHeight - menuH) + 'px'
+      const margin = 10
+      const menuW = this.contextMenu.offsetWidth
+      const menuH = this.contextMenu.offsetHeight
+      const maxLeft = Math.max(margin, window.innerWidth - menuW - margin)
+      const maxTop = Math.max(margin, window.innerHeight - menuH - margin)
+      this.contextMenu.style.left = Math.max(margin, Math.min(x, maxLeft)) + 'px'
+      this.contextMenu.style.top = Math.max(margin, Math.min(y, maxTop)) + 'px'
     }
 
     hideContextMenu() {
@@ -2047,7 +2111,9 @@
         this.isPhysicsActive = false
         this.currentState = 'idle'
         this.animState.expression = 'idle'
+        this.animState.rotation = 0
         this.velocity = { x: 0, y: 0 }
+        this.clampPosition()
         this.say('呼... 平安着陆！😵‍💫')
         this.saveConfig()
       }
@@ -2289,7 +2355,7 @@
       // 物理
       if (this.currentState === 'flying') {
         this.updatePhysics()
-        this.animState.rotation = (this.animState.rotation + this.velocity.x * 2) % 360
+        this.animState.rotation = (this.animState.rotation + this.velocity.x * 1.2) % 360
       }
 
       // 自动入睡

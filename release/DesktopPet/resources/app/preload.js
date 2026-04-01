@@ -51,6 +51,7 @@ function isInteractiveTarget(target) {
 
 window.addEventListener('DOMContentLoaded', () => {
   let lastShouldIgnore = null
+  const FOCUSABLE_INPUT_SELECTOR = 'input, textarea, select, [contenteditable="true"]'
 
   const syncIgnoreMouse = (shouldIgnore) => {
     if (lastShouldIgnore === shouldIgnore) return
@@ -63,12 +64,20 @@ window.addEventListener('DOMContentLoaded', () => {
     syncIgnoreMouse(!isInteractiveTarget(target))
   }
 
+  ipcRenderer.on('desktop-pet:cursor-point', (_event, point) => {
+    if (!point || typeof point.clientX !== 'number' || typeof point.clientY !== 'number') return
+    updateByPoint(point.clientX, point.clientY)
+  })
+
   window.addEventListener('mousemove', (event) => {
     updateByPoint(event.clientX, event.clientY)
   }, true)
 
-  window.addEventListener('mousedown', () => {
-    ipcRenderer.send('desktop-pet:focus')
+  window.addEventListener('mousedown', (event) => {
+    const target = event.target
+    if (target instanceof Element && target.closest(FOCUSABLE_INPUT_SELECTOR)) {
+      ipcRenderer.send('desktop-pet:focus')
+    }
     syncIgnoreMouse(false)
   }, true)
 
