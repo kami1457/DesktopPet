@@ -12,11 +12,13 @@ let ignoreMouse = false
 let cursorSyncTimer = null
 
 const CURSOR_SYNC_INTERVAL_MS = 120
+const WINDOW_EDGE_GAP_PX = 2
 
 function getVirtualBounds() {
   const displays = screen.getAllDisplays()
   return displays.reduce((acc, display) => {
-    const { x, y, width, height } = display.bounds
+    const area = display.workArea || display.bounds
+    const { x, y, width, height } = area
     acc.left = Math.min(acc.left, x)
     acc.top = Math.min(acc.top, y)
     acc.right = Math.max(acc.right, x + width)
@@ -32,11 +34,13 @@ function getVirtualBounds() {
 
 function applyWindowBounds(win) {
   const bounds = getVirtualBounds()
+  const width = Math.max(320, bounds.right - bounds.left - WINDOW_EDGE_GAP_PX * 2)
+  const height = Math.max(180, bounds.bottom - bounds.top - WINDOW_EDGE_GAP_PX * 2)
   win.setBounds({
-    x: bounds.left,
-    y: bounds.top,
-    width: bounds.right - bounds.left,
-    height: bounds.bottom - bounds.top,
+    x: bounds.left + WINDOW_EDGE_GAP_PX,
+    y: bounds.top + WINDOW_EDGE_GAP_PX,
+    width,
+    height,
   })
 }
 
@@ -142,7 +146,7 @@ function createWindow() {
   mainWindow.setSkipTaskbar(false)
   mainWindow.setIcon(createAppIcon())
   mainWindow.setMenuBarVisibility(false)
-  mainWindow.setAlwaysOnTop(true, 'screen-saver')
+  mainWindow.setAlwaysOnTop(true, 'floating')
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   applyWindowBounds(mainWindow)
   mainWindow.loadFile(path.join(__dirname, 'index.html'))
@@ -211,6 +215,10 @@ ipcMain.on('desktop-pet:focus', () => {
     mainWindow.blur()
     mainWindow.setFocusable(false)
   }, 120)
+})
+
+ipcMain.on('desktop-pet:exit-app', () => {
+  app.quit()
 })
 
 app.on('window-all-closed', () => {

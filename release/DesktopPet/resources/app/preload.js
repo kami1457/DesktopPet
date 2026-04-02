@@ -1,6 +1,7 @@
 'use strict'
 
 const { ipcRenderer } = require('electron')
+const { contextBridge } = require('electron')
 
 const INTERACTIVE_SELECTORS = [
   '#pet-container',
@@ -98,4 +99,8 @@ window.addEventListener('DOMContentLoaded', () => {
   })
 
   syncIgnoreMouse(true)
+})
+
+contextBridge.exposeInMainWorld('desktopPetAPI', {
+  exitApp: () => ipcRenderer.send('desktop-pet:exit-app'),
 })

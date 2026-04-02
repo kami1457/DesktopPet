@@ -1363,6 +1363,7 @@
       document.getElementById('menu-sleep').addEventListener('click', () => { this.hideContextMenu(); this.doSleep() })
       document.getElementById('menu-feed').addEventListener('click', () => { this.hideContextMenu(); this.doFeed() })
       document.getElementById('menu-hide').addEventListener('click', () => { this.hideContextMenu(); this.hidePet() })
+      document.getElementById('menu-exit').addEventListener('click', () => { this.hideContextMenu(); this.requestExit() })
       document.getElementById('menu-quote').addEventListener('click', () => { this.hideContextMenu(); this.showRandomQuote() })
 
       document.getElementById('menu-dark-mode').addEventListener('click', () => {
@@ -1508,6 +1509,14 @@
 
       // 窗口大小变化
       window.addEventListener('resize', () => this.clampPosition())
+
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') this.hideContextMenu()
+        if (e.ctrlKey && e.shiftKey && (e.key === 'Q' || e.key === 'q')) {
+          e.preventDefault()
+          this.requestExit()
+        }
+      })
     }
 
     bindSlider(inputId, displayId, unit, callback) {
@@ -1995,6 +2004,10 @@
 
     hideContextMenu() {
       this.contextMenu.classList.add('hidden')
+    }
+
+    requestExit() {
+      window.desktopPetAPI.exitApp()
     }
 
     // ========================================

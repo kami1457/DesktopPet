@@ -6,11 +6,13 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win portable",
-    "build:portable": "powershell -ExecutionPolicy Bypass -File .\\build-portable.ps1"
+    "build:portable": "powershell -ExecutionPolicy Bypass -File .\\build-portable.ps1",
+    "build:install": "electron-builder --win nsis --x64"
   },
   "build": {
     "appId": "com.local.desktoppet",
     "productName": "DesktopPet",
+    "artifactName": "${productName} Setup ${version}.${ext}",
     "directories": {
       "output": "dist"
     },
@@ -23,6 +25,7 @@
       "package.json"
     ],
     "win": {
+      "signAndEditExecutable": false,
       "target": [
         {
           "target": "portable",
@@ -31,6 +34,11 @@
           ]
         }
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always"
     }
   },
   "devDependencies": {
