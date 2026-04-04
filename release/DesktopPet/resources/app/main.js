@@ -4,6 +4,7 @@ const path = require('path')
 const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage } = require('electron')
 
 const APP_ID = 'com.local.desktoppet'
+app.disableHardwareAcceleration()
 
 let mainWindow = null
 let tray = null
@@ -13,6 +14,9 @@ let cursorSyncTimer = null
 
 const CURSOR_SYNC_INTERVAL_MS = 120
 const WINDOW_EDGE_GAP_PX = 2
+const MIN_SHAPE_RECT = Object.freeze({ x: 0, y: 0, width: 1, height: 1 })
+const MAX_SHAPE_RECTS = 128
+let lastShapeSignature = ''
 
 function getVirtualBounds() {
   const displays = screen.getAllDisplays()
@@ -47,7 +51,65 @@ function applyWindowBounds(win) {
 function setIgnoreMouse(win, shouldIgnore) {
   if (!win || win.isDestroyed() || ignoreMouse === shouldIgnore) return
   ignoreMouse = shouldIgnore
-  win.setIgnoreMouseEvents(shouldIgnore, { forward: shouldIgnore })
+  if (shouldIgnore) {
+    win.setIgnoreMouseEvents(true, { forward: true })
+  } else {
+    win.setIgnoreMouseEvents(false)
+  }
+  sendCursorPoint(win)
+}
+
+function ensureWindowTopMost(win) {
+  if (!win || win.isDestroyed()) return
+  win.setAlwaysOnTop(true, 'screen-saver')
+  if (typeof win.moveTop === 'function') win.moveTop()
+}
+
+function normalizeShapeRects(win, rawRects) {
+  if (!Array.isArray(rawRects)) return [MIN_SHAPE_RECT]
+  const bounds = win.getBounds()
+  const maxWidth = Math.max(1, bounds.width)
+  const maxHeight = Math.max(1, bounds.height)
+  const normalized = []
+
+  for (const raw of rawRects) {
+    if (!raw || typeof raw !== 'object') continue
+    const rawX = Number(raw.x)
+    const rawY = Number(raw.y)
+    const rawWidth = Number(raw.width)
+    const rawHeight = Number(raw.height)
+    if (![rawX, rawY, rawWidth, rawHeight].every(Number.isFinite)) continue
+
+    const x = Math.max(0, Math.min(maxWidth - 1, Math.floor(rawX)))
+    const y = Math.max(0, Math.min(maxHeight - 1, Math.floor(rawY)))
+    const right = Math.max(x + 1, Math.min(maxWidth, Math.ceil(rawX + rawWidth)))
+    const bottom = Math.max(y + 1, Math.min(maxHeight, Math.ceil(rawY + rawHeight)))
+    const width = right - x
+    const height = bottom - y
+    if (width <= 0 || height <= 0) continue
+
+    normalized.push({ x, y, width, height })
+    if (normalized.length >= MAX_SHAPE_RECTS) break
+  }
+
+  return normalized.length > 0 ? normalized : [MIN_SHAPE_RECT]
+}
+
+function getShapeSignature(rects) {
+  return rects.map((rect) => `${rect.x},${rect.y},${rect.width},${rect.height}`).join(';')
+}
+
+function applyWindowShape(win, rawRects, force = false) {
+  if (!win || win.isDestroyed() || typeof win.setShape !== 'function') return
+  const rects = normalizeShapeRects(win, rawRects)
+  const signature = getShapeSignature(rects)
+  if (!force && signature === lastShapeSignature) return
+  lastShapeSignature = signature
+  try {
+    win.setShape(rects)
+  } catch (error) {
+    console.warn('[DesktopPet] Failed to apply window shape:', error)
+  }
 }
 
 function sendCursorPoint(win) {
@@ -114,6 +176,7 @@ function createTray() {
 }
 
 function createWindow() {
+  lastShapeSignature = ''
   mainWindow = new BrowserWindow({
     x: 0,
     y: 0,
@@ -129,7 +192,7 @@ function createWindow() {
     movable: false,
     alwaysOnTop: true,
     focusable: false,
-    skipTaskbar: false,
+    skipTaskbar: true,
     icon: createAppIcon(),
     backgroundColor: '#00000000',
     show: false,
@@ -143,16 +206,19 @@ function createWindow() {
   })
 
   mainWindow.removeMenu()
-  mainWindow.setSkipTaskbar(false)
+  mainWindow.setSkipTaskbar(true)
   mainWindow.setIcon(createAppIcon())
   mainWindow.setMenuBarVisibility(false)
-  mainWindow.setAlwaysOnTop(true, 'floating')
+  ensureWindowTopMost(mainWindow)
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   applyWindowBounds(mainWindow)
+  applyWindowShape(mainWindow, [MIN_SHAPE_RECT], true)
   mainWindow.loadFile(path.join(__dirname, 'index.html'))
 
   mainWindow.once('ready-to-show', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return
+    ensureWindowTopMost(mainWindow)
+    applyWindowShape(mainWindow, [MIN_SHAPE_RECT], true)
     mainWindow.show()
     mainWindow.blur()
     startCursorSync(mainWindow)
@@ -171,6 +237,7 @@ if (!isPrimary) {
   app.on('second-instance', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     mainWindow.show()
+    ensureWindowTopMost(mainWindow)
   })
 
   app.whenReady().then(() => {
@@ -182,16 +249,22 @@ if (!isPrimary) {
     screen.on('display-added', () => {
       if (!mainWindow) return
       applyWindowBounds(mainWindow)
+      ensureWindowTopMost(mainWindow)
+      applyWindowShape(mainWindow, [MIN_SHAPE_RECT], true)
       sendCursorPoint(mainWindow)
     })
     screen.on('display-removed', () => {
       if (!mainWindow) return
       applyWindowBounds(mainWindow)
+      ensureWindowTopMost(mainWindow)
+      applyWindowShape(mainWindow, [MIN_SHAPE_RECT], true)
       sendCursorPoint(mainWindow)
     })
     screen.on('display-metrics-changed', () => {
       if (!mainWindow) return
       applyWindowBounds(mainWindow)
+      ensureWindowTopMost(mainWindow)
+      applyWindowShape(mainWindow, [MIN_SHAPE_RECT], true)
       sendCursorPoint(mainWindow)
     })
 
@@ -206,15 +279,21 @@ ipcMain.on('desktop-pet:set-ignore-mouse', (_event, shouldIgnore) => {
   setIgnoreMouse(mainWindow, Boolean(shouldIgnore))
 })
 
+ipcMain.on('desktop-pet:set-hit-regions', (_event, regions) => {
+  if (!mainWindow) return
+  applyWindowShape(mainWindow, regions)
+})
+
 ipcMain.on('desktop-pet:focus', () => {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  mainWindow.setFocusable(true)
+  if (!mainWindow.isFocusable()) mainWindow.setFocusable(true)
   if (!mainWindow.isFocused()) mainWindow.focus()
-  setTimeout(() => {
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    mainWindow.blur()
-    mainWindow.setFocusable(false)
-  }, 120)
+})
+
+ipcMain.on('desktop-pet:release-focus', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isFocused()) mainWindow.blur()
+  if (mainWindow.isFocusable()) mainWindow.setFocusable(false)
 })
 
 ipcMain.on('desktop-pet:exit-app', () => {

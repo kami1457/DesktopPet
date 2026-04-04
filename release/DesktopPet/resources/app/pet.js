@@ -29,6 +29,23 @@
   const IMAGES_KEY = 'desktop-pet-images'
   const AFFECTION_KEY = 'desktop-pet-affection'
   const TODO_KEY = 'desktop-pet-todos'
+  const BASE_TAIL_SPEED = 0.52
+  const BASE_TAIL_AMPLITUDE = 0.9
+  const HAPPY_TAIL_SPEED = BASE_TAIL_SPEED
+  const HAPPY_TAIL_AMPLITUDE = BASE_TAIL_AMPLITUDE
+  const TAIL_SPEED_HARD_CAP = 0.9
+  const TAIL_AMPLITUDE_HARD_CAP = 1.15
+  const MAX_BOOST_TAIL_SPEED = TAIL_SPEED_HARD_CAP
+  const MAX_BOOST_TAIL_AMPLITUDE = TAIL_AMPLITUDE_HARD_CAP
+  const SPEAKING_TAIL_SPEED = 0.16
+  const SPEAKING_TAIL_AMPLITUDE = 0.42
+  const SPEAKING_TAIL_LERP = 0.32
+  const PARTICLE_DPR_CAP = 1.25
+  const PET_DPR_CAP = 1.5
+  const MAX_PARTICLES = 120
+  const AUTO_WALK_IDLE_DELAY_MS = 5 * 60 * 1000
+  const IDEAL_FRAME_MS = 1000 / 60
+  const MAX_FRAME_DELTA_MS = 48
 
   // ==========================================
   // 随机语录库
@@ -120,9 +137,10 @@
     // ---- 尾巴（情绪驱动速度/幅度） ----
     static drawTail(ctx, cx, breathOffset, state) {
       const pawY = 170 + breathOffset
-      const tailSpeed = state.tailSpeed || 1
-      const tailAmp = (state.tailAmplitude || 1) * 15
-      const tailWag = Math.sin(Date.now() / 300 * tailSpeed + state.breathe) * tailAmp
+      const safeTailSpeed = Math.max(0.08, Math.min(TAIL_SPEED_HARD_CAP, state.tailSpeed || BASE_TAIL_SPEED))
+      const safeTailAmp = Math.max(0.3, Math.min(TAIL_AMPLITUDE_HARD_CAP, state.tailAmplitude || BASE_TAIL_AMPLITUDE))
+      const tailPhase = Number.isFinite(state.tailPhase) ? state.tailPhase : 0
+      const tailWag = Math.sin(tailPhase) * safeTailAmp * 15
 
       ctx.strokeStyle = '#e8e0d8'
       ctx.lineWidth = 8
@@ -290,7 +308,7 @@
       this.drawWhiskers(ctx, cx, faceY, state)
 
       if (state.expression === 'sleep') {
-        this.drawSleepZzz(ctx, cx, faceY)
+        this.drawSleepZzz(ctx, cx, faceY, state)
       }
     }
 
@@ -371,8 +389,8 @@
 
         // 眼睛闪烁
         if (sparkle > 0.1) {
-          this.drawEyeSparkle(ctx, cx - 22 + px * 0.5, eby - 1, sparkle, eo)
-          this.drawEyeSparkle(ctx, cx + 22 + px * 0.5, eby - 1, sparkle, eo)
+          this.drawEyeSparkle(ctx, cx - 22 + px * 0.5, eby - 1, sparkle, eo, state.customAnimPhase || 0)
+          this.drawEyeSparkle(ctx, cx + 22 + px * 0.5, eby - 1, sparkle, eo, state.customAnimPhase || 0)
         }
       } else {
         // 贝塞尔闭眼
@@ -397,14 +415,13 @@
     }
 
     // ---- 眼睛十字闪烁 ----
-    static drawEyeSparkle(ctx, x, y, intensity, eyeOpen) {
+    static drawEyeSparkle(ctx, x, y, intensity, eyeOpen, animPhase = 0) {
       if (eyeOpen < 0.5) return
       ctx.save()
       ctx.globalAlpha = intensity * eyeOpen
       ctx.strokeStyle = '#fff'
       ctx.lineWidth = 1.2
-      const t = Date.now() / 800
-      const s = 3 + Math.sin(t) * 1.2
+      const s = 3 + Math.sin(animPhase * 1.25) * 1.2
 
       ctx.beginPath(); ctx.moveTo(x - s, y); ctx.lineTo(x + s, y); ctx.stroke()
       ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x, y + s); ctx.stroke()
@@ -546,10 +563,10 @@
     }
 
     // ---- 睡觉 zzZ ----
-    static drawSleepZzz(ctx, cx, faceY) {
+    static drawSleepZzz(ctx, cx, faceY, state) {
       ctx.font = 'bold 16px sans-serif'
       ctx.fillStyle = 'rgba(100, 100, 200, 0.6)'
-      const zp = (Date.now() / 1000) % 3
+      const zp = (state.customAnimPhase || 0) % 3
       ctx.save()
       ctx.translate(cx + 50, faceY - 30 - zp * 8)
       ctx.globalAlpha = 1 - zp / 3
@@ -717,12 +734,13 @@
       this.canvas = document.getElementById('particle-canvas')
       this.ctx = this.canvas.getContext('2d')
       this.particles = []
+      this.hasDrawnFrame = false
       this.resize()
       window.addEventListener('resize', () => this.resize())
     }
 
     resize() {
-      const dpr = window.devicePixelRatio || 1
+      const dpr = Math.min(window.devicePixelRatio || 1, PARTICLE_DPR_CAP)
       this.canvas.width = window.innerWidth * dpr
       this.canvas.height = window.innerHeight * dpr
       this.canvas.style.width = window.innerWidth + 'px'
@@ -732,6 +750,7 @@
 
     emit(x, y, type, count) {
       for (let i = 0; i < count; i++) {
+        if (this.particles.length >= MAX_PARTICLES) this.particles.shift()
         const angle = Math.random() * Math.PI * 2
         const speed = 1 + Math.random() * 3
         this.particles.push({
@@ -764,6 +783,13 @@
     }
 
     render() {
+      if (this.particles.length === 0) {
+        if (this.hasDrawnFrame) {
+          this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+          this.hasDrawnFrame = false
+        }
+        return
+      }
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
       for (const p of this.particles) {
         this.ctx.save()
@@ -792,6 +818,7 @@
 
         this.ctx.restore()
       }
+      this.hasDrawnFrame = true
     }
 
     drawHeart(ctx, x, y, size) {
@@ -852,6 +879,8 @@
       this.contextMenu = document.getElementById('context-menu')
       this.showPetBtn = document.getElementById('show-pet')
       this.statusBar = document.getElementById('pet-status-bar')
+      this.interactionLayer = document.getElementById('interaction-layer')
+      this.pomodoroMini = document.getElementById('pomodoro-mini')
       this.statusHideTimer = null
       this.scheduleStatusBarHide = null
 
@@ -895,8 +924,9 @@
         bodySwayX: 0,
         bodySwayY: 0,
         headBobY: 0,
-        tailSpeed: 1,
-        tailAmplitude: 1,
+        tailSpeed: BASE_TAIL_SPEED,
+        tailAmplitude: BASE_TAIL_AMPLITUDE,
+        tailPhase: 0,
         jumpPhase: 0,
       }
 
@@ -909,9 +939,24 @@
       this.blinkTimer = 0
       this.blinkInterval = this.randomBlinkInterval()
       this.speechTimeout = null
+      this.slowTailDuringSpeech = false
       this.spinAngle = 0
       this.wavePhase = 0
       this.frameCount = 0
+      this.animationFrameId = null
+      this.lastFrameTimestamp = 0
+      this.animationTime = 0
+      this.lastUserActionAt = Date.now()
+      this.tailBoostUntil = 0
+      this.tailBoostSpeed = BASE_TAIL_SPEED
+      this.tailBoostAmplitude = BASE_TAIL_AMPLITUDE
+      this.tailBoostReason = ''
+      this.autoWalkIdleDelay = AUTO_WALK_IDLE_DELAY_MS
+      this.autoWalkSpeed = 0.38
+      this.walkVector = { x: 1, y: 0 }
+      this.walkTarget = null
+      this.walkStepPhase = 0
+      this.walkPauseUntil = 0
 
       // 目标追踪值（平滑过渡）
       this.targetLookX = 0
@@ -983,6 +1028,8 @@
       this.updatePreviews()
       this.updateStatusBar()
       this.updateAffectionUI()
+      this.updatePomodoroDisplay()
+      this.updateOverlayState()
       this.renderTodos()
       this.requestFrame()
 
@@ -1044,21 +1091,27 @@
 
     applyConfig() {
       const { size, opacity, posX, posY, mirror, showStatus } = this.config
-      const dpr = window.devicePixelRatio || 1
+      const dpr = Math.min(window.devicePixelRatio || 1, PET_DPR_CAP)
+      const maxX = Math.max(0, window.innerWidth - size)
+      const maxY = Math.max(0, window.innerHeight - size)
+      const safeX = Math.max(0, Math.min(posX, maxX))
+      const safeY = Math.max(0, Math.min(posY, maxY))
 
       this.canvas.width = size * dpr
       this.canvas.height = size * dpr
       this.canvas.style.width = size + 'px'
       this.canvas.style.height = size + 'px'
 
-      this.container.style.left = Math.min(posX, window.innerWidth - size) + 'px'
-      this.container.style.top = Math.min(posY, window.innerHeight - size) + 'px'
+      this.config.posX = safeX
+      this.config.posY = safeY
+      this.container.style.left = safeX + 'px'
+      this.container.style.top = safeY + 'px'
       this.container.style.opacity = opacity / 100
       this.container.style.transform = mirror ? 'scaleX(-1)' : ''
 
       if (this.statusBar) {
         this.statusBar.classList.toggle('hidden', !showStatus)
-        if (showStatus && typeof this.scheduleStatusBarHide === 'function') this.scheduleStatusBarHide()
+        if (showStatus) this.statusBar.classList.remove('status-visible')
       }
 
       this.syncSettingsUI()
@@ -1105,9 +1158,11 @@
       } catch { /* ignore */ }
     }
 
-    addAffection(amount) {
+    addAffection(amount, options = {}) {
+      const { tailBoost = false, tailBoostReason = '' } = options
       this.affection.exp += amount
       this.affection.totalInteractions++
+      if (tailBoost) this.boostTailWag(1.0, 1.1, 2000, tailBoostReason)
       this.checkLevelUp()
       this.saveAffection()
       this.updateStatusBar()
@@ -1195,13 +1250,15 @@
     // 喂食
     // ========================================
     doFeed() {
+      this.markUserAction()
       if (this.affection.hunger >= 100) {
         this.say('吃不下了~ 我已经很饱啦！🤭')
         return
       }
       this.affection.hunger = Math.min(100, this.affection.hunger + 25)
       this.affection.totalFeeds++
-      this.addAffection(5)
+      this.boostTailWag(1.0, 1.1, 2200, 'feed')
+      this.addAffection(5, { tailBoost: false })
 
       this.animState.expression = 'happy'
       this.animState.mouthShape = 'meow'
@@ -1220,10 +1277,56 @@
       }, 2000)
     }
 
+    markUserAction() {
+      this.lastUserActionAt = Date.now()
+      this.lastInteraction = Date.now()
+      if (this.currentState === 'walking') {
+        this.currentState = 'idle'
+        this.animState.expression = 'idle'
+        this.animState.pawLeftY = 0
+        this.animState.pawRightY = 0
+        this.animState.bodySwayX = 0
+        this.animState.headBobY = 0
+        this.walkTarget = null
+        this.walkPauseUntil = 0
+        this.saveConfig()
+      }
+    }
+
+    boostTailWag(speed, amplitude, durationMs, reason = '') {
+      const normalizedReason = reason === 'click' || reason === 'feed' ? reason : ''
+      if (!normalizedReason) return
+      const now = Date.now()
+      const safeSpeed = Math.min(speed, MAX_BOOST_TAIL_SPEED)
+      const safeAmplitude = Math.min(amplitude, MAX_BOOST_TAIL_AMPLITUDE)
+      const nextSpeed = Math.max(this.tailBoostSpeed, safeSpeed)
+      const nextAmplitude = Math.max(this.tailBoostAmplitude, safeAmplitude)
+      this.tailBoostSpeed = nextSpeed
+      this.tailBoostAmplitude = nextAmplitude
+      this.tailBoostUntil = Math.max(this.tailBoostUntil, now + durationMs)
+      this.tailBoostReason = normalizedReason
+      this.animState.tailSpeed = Math.max(this.animState.tailSpeed, nextSpeed)
+      this.animState.tailAmplitude = Math.max(this.animState.tailAmplitude, nextAmplitude)
+    }
+
     // ========================================
     // 事件绑定
     // ========================================
     bindEvents() {
+      const PET_UI_SELECTOR = '#pet-container, #context-menu, #settings-panel, #pomodoro-panel, #todo-panel, #show-pet'
+
+      document.addEventListener('mousedown', (e) => {
+        if (e.target instanceof Element && e.target.closest(PET_UI_SELECTOR)) {
+          this.markUserAction()
+        }
+      }, true)
+
+      document.addEventListener('keydown', (e) => {
+        if (e.target instanceof Element && e.target.closest('#settings-panel, #pomodoro-panel, #todo-panel')) {
+          this.markUserAction()
+        }
+      }, true)
+
       const showStatusBar = () => {
         if (!this.statusBar || !this.config.showStatus) return
         if (this.statusHideTimer) {
@@ -1262,11 +1365,15 @@
       // 拖拽（含物理速度追踪）
       this.container.addEventListener('mousedown', (e) => {
         if (e.button === 0) {
+          this.markUserAction()
+          const interruptingFlying = this.currentState === 'flying' || this.isPhysicsActive
           this.isDragging = true
           this.currentState = 'dragging'
           this.isPhysicsActive = false
+          if (interruptingFlying) this.animState.rotation = 0
           this.velocity = { x: 0, y: 0 }
           this.container.classList.add('dragging')
+          this.container.classList.remove('physics-active')
           const rect = this.container.getBoundingClientRect()
           this.dragOffset = {
             x: e.clientX - rect.left,
@@ -1282,8 +1389,9 @@
 
       document.addEventListener('mousemove', (e) => {
         if (this.isDragging) {
-          const x = e.clientX - this.dragOffset.x
-          const y = e.clientY - this.dragOffset.y
+          const rawX = e.clientX - this.dragOffset.x
+          const rawY = e.clientY - this.dragOffset.y
+          const { x, y } = this.getClampedPetPosition(rawX, rawY)
           this.container.style.left = x + 'px'
           this.container.style.top = y + 'px'
           this.config.posX = x
@@ -1312,12 +1420,16 @@
             this.isPhysicsActive = true
             this.currentState = 'flying'
             this.animState.expression = 'surprised'
+            this.container.classList.add('physics-active')
             this.say('哇啊啊啊~ 😵‍💫')
           } else {
             this.currentState = 'idle'
             this.animState.expression = 'idle'
+            this.animState.rotation = 0
+            this.container.classList.remove('physics-active')
             this.saveConfig()
           }
+          this.positionPomodoroMini()
         }
       })
 
@@ -1339,12 +1451,24 @@
 
       // 右键菜单
       this.container.addEventListener('contextmenu', (e) => {
+        this.markUserAction()
         e.preventDefault()
         e.stopPropagation()
         this.showContextMenu(e.clientX, e.clientY)
       })
 
       document.addEventListener('click', (e) => {
+        if (this.interactionLayer && e.target === this.interactionLayer) {
+          this.hideContextMenu()
+          this.closeSettings()
+          const pomodoroPanel = document.getElementById('pomodoro-panel')
+          const todoPanel = document.getElementById('todo-panel')
+          if (pomodoroPanel) pomodoroPanel.classList.add('hidden')
+          if (todoPanel) todoPanel.classList.add('hidden')
+          this.updatePomodoroMiniDisplay()
+          this.updateOverlayState()
+          return
+        }
         if (!this.contextMenu.contains(e.target)) this.hideContextMenu()
       })
 
@@ -1388,6 +1512,14 @@
 
       // 显示桌宠按钮
       this.showPetBtn.addEventListener('click', () => this.showPet())
+      if (this.pomodoroMini) {
+        this.pomodoroMini.addEventListener('click', () => {
+          const panel = document.getElementById('pomodoro-panel')
+          if (panel && panel.classList.contains('hidden')) {
+            this.toggleMiniPanel('pomodoro-panel')
+          }
+        })
+      }
 
       // 设置面板
       document.getElementById('close-settings').addEventListener('click', () => this.closeSettings())
@@ -1412,14 +1544,13 @@
       document.getElementById('pet-show-status').addEventListener('change', (e) => {
         this.config.showStatus = e.target.checked
         this.statusBar.classList.toggle('hidden', !e.target.checked)
-        if (e.target.checked) {
-          showStatusBar()
-          hideStatusBarLater()
-        } else {
+        if (!e.target.checked) {
           if (this.statusHideTimer) {
             clearTimeout(this.statusHideTimer)
             this.statusHideTimer = null
           }
+          this.statusBar.classList.remove('status-visible')
+        } else {
           this.statusBar.classList.remove('status-visible')
         }
         this.saveConfig()
@@ -1497,9 +1628,15 @@
       document.querySelectorAll('.close-mini-panel').forEach((btn) => {
         btn.addEventListener('click', () => {
           const panel = document.getElementById(btn.dataset.panel)
-          if (panel) panel.classList.add('hidden')
+          if (panel) {
+            panel.classList.add('hidden')
+            if (panel.id === 'pomodoro-panel') this.updatePomodoroMiniDisplay()
+            this.updateOverlayState()
+          }
         })
       })
+
+      this.bindMiniPanelDrag()
 
       // ★ 番茄钟事件
       this.bindPomodoroEvents()
@@ -1511,8 +1648,19 @@
       window.addEventListener('resize', () => this.clampPosition())
 
       window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') this.hideContextMenu()
+        if (e.key === 'Escape') {
+          this.markUserAction()
+          this.hideContextMenu()
+          this.closeSettings()
+          const pomodoroPanel = document.getElementById('pomodoro-panel')
+          const todoPanel = document.getElementById('todo-panel')
+          if (pomodoroPanel) pomodoroPanel.classList.add('hidden')
+          if (todoPanel) todoPanel.classList.add('hidden')
+          this.updatePomodoroMiniDisplay()
+          this.updateOverlayState()
+        }
         if (e.ctrlKey && e.shiftKey && (e.key === 'Q' || e.key === 'q')) {
+          this.markUserAction()
           e.preventDefault()
           this.requestExit()
         }
@@ -1553,6 +1701,7 @@
 
       p.isRunning = true
       p.isPaused = false
+      if (!p.isBreak) this.stopAutoWalk()
 
       document.getElementById('pomodoro-start').disabled = true
       document.getElementById('pomodoro-pause').disabled = false
@@ -1562,6 +1711,7 @@
 
       if (p.interval) clearInterval(p.interval)
       p.interval = setInterval(() => this.pomodoroTick(), 1000)
+      this.updatePomodoroMiniDisplay()
     }
 
     pomodoroPause() {
@@ -1577,6 +1727,7 @@
       document.getElementById('pomodoro-status').textContent = '已暂停'
 
       this.say('番茄钟已暂停 ⏸')
+      this.updatePomodoroMiniDisplay()
     }
 
     pomodoroReset() {
@@ -1592,6 +1743,7 @@
       document.getElementById('pomodoro-time').classList.remove('active')
       this.updatePomodoroDisplay()
       document.getElementById('pomodoro-status').textContent = '准备开始'
+      this.updatePomodoroMiniDisplay()
     }
 
     pomodoroTick() {
@@ -1612,6 +1764,7 @@
           document.getElementById('pomodoro-time').classList.remove('active')
           document.getElementById('pomodoro-status').textContent = '准备开始'
           this.say('休息结束！准备好再来一个番茄了吗？💪')
+          this.updatePomodoroMiniDisplay()
         } else {
           // 工作结束
           p.completed++
@@ -1627,6 +1780,7 @@
 
           // 自动开始休息
           p.interval = setInterval(() => this.pomodoroTick(), 1000)
+          this.updatePomodoroMiniDisplay()
         }
       }
     }
@@ -1640,6 +1794,35 @@
       if (this.pomodoro.isRunning && !this.pomodoro.isPaused) {
         document.getElementById('pomodoro-status').textContent = this.pomodoro.isBreak ? '☕ 休息中' : '🍅 专注中'
       }
+
+      this.updatePomodoroMiniDisplay()
+    }
+
+    updatePomodoroMiniDisplay() {
+      if (!this.pomodoroMini) return
+      const panel = document.getElementById('pomodoro-panel')
+      const panelVisible = panel && !panel.classList.contains('hidden')
+      const p = this.pomodoro
+      const shouldShow = !panelVisible && (p.isRunning || p.isPaused)
+      this.pomodoroMini.classList.toggle('hidden', !shouldShow)
+      if (!shouldShow) {
+        this.updateOverlayState()
+        return
+      }
+
+      const min = Math.floor(p.remaining / 60)
+      const sec = p.remaining % 60
+      const timeStr = String(min).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+      const phaseEl = document.getElementById('pomodoro-mini-phase')
+      const timeEl = document.getElementById('pomodoro-mini-time')
+      if (phaseEl) {
+        phaseEl.textContent = p.isPaused
+          ? '⏸ 已暂停'
+          : (p.isBreak ? '☕ 休息中' : '🍅 专注中')
+      }
+      if (timeEl) timeEl.textContent = timeStr
+      this.positionPomodoroMini()
+      this.updateOverlayState()
     }
 
     // ========================================
@@ -1749,6 +1932,96 @@
       } else {
         panel.classList.add('hidden')
       }
+
+      if (panelId === 'pomodoro-panel') this.updatePomodoroMiniDisplay()
+      this.updateOverlayState()
+    }
+
+    positionPomodoroMini() {
+      if (!this.pomodoroMini || this.pomodoroMini.classList.contains('hidden')) return
+      const margin = 10
+      const miniW = this.pomodoroMini.offsetWidth || 120
+      const miniH = this.pomodoroMini.offsetHeight || 28
+      const maxLeft = Math.max(margin, window.innerWidth - miniW - margin)
+      const maxTop = Math.max(margin, window.innerHeight - miniH - margin)
+      let left = margin
+      let top = margin
+
+      if (!this.container.classList.contains('hidden')) {
+        const rect = this.container.getBoundingClientRect()
+        left = rect.right + 12
+        top = rect.top + 8
+        if (left > maxLeft) left = rect.left - miniW - 12
+        if (left < margin) left = margin
+        if (top > maxTop) top = maxTop
+      } else if (!this.showPetBtn.classList.contains('hidden')) {
+        const btnRect = this.showPetBtn.getBoundingClientRect()
+        left = btnRect.left - miniW - 10
+        top = btnRect.top + Math.round((btnRect.height - miniH) / 2)
+        if (left < margin) left = btnRect.right + 10
+        if (left > maxLeft) left = maxLeft
+        if (top < margin) top = margin
+        if (top > maxTop) top = maxTop
+      }
+
+      this.pomodoroMini.style.left = Math.round(left) + 'px'
+      this.pomodoroMini.style.top = Math.round(top) + 'px'
+    }
+
+    updateOverlayState() {
+      if (!this.interactionLayer) return
+      const isSettingsVisible = !this.settingsPanel.classList.contains('hidden')
+      const isContextVisible = !this.contextMenu.classList.contains('hidden')
+      const pomodoroPanel = document.getElementById('pomodoro-panel')
+      const todoPanel = document.getElementById('todo-panel')
+      const isPomodoroVisible = Boolean(pomodoroPanel && !pomodoroPanel.classList.contains('hidden'))
+      const isTodoVisible = Boolean(todoPanel && !todoPanel.classList.contains('hidden'))
+      const hasOverlay = isSettingsVisible || isContextVisible || isPomodoroVisible || isTodoVisible
+
+      this.interactionLayer.classList.toggle('hidden', !hasOverlay)
+    }
+
+    bindMiniPanelDrag() {
+      const headers = document.querySelectorAll('.mini-panel-header')
+      headers.forEach((header) => {
+        const panel = header.closest('.mini-panel')
+        if (!panel) return
+
+        let dragging = false
+        let startX = 0
+        let startY = 0
+        let originLeft = 0
+        let originTop = 0
+
+        header.addEventListener('mousedown', (e) => {
+          if (e.button !== 0) return
+          if (e.target && e.target.closest('.close-mini-panel')) return
+          dragging = true
+          startX = e.clientX
+          startY = e.clientY
+          const rect = panel.getBoundingClientRect()
+          originLeft = rect.left
+          originTop = rect.top
+          panel.classList.add('dragging')
+          e.preventDefault()
+        })
+
+        document.addEventListener('mousemove', (e) => {
+          if (!dragging) return
+          const maxLeft = Math.max(10, window.innerWidth - panel.offsetWidth - 10)
+          const maxTop = Math.max(10, window.innerHeight - panel.offsetHeight - 10)
+          const nextLeft = Math.max(10, Math.min(originLeft + (e.clientX - startX), maxLeft))
+          const nextTop = Math.max(10, Math.min(originTop + (e.clientY - startY), maxTop))
+          panel.style.left = nextLeft + 'px'
+          panel.style.top = nextTop + 'px'
+        })
+
+        document.addEventListener('mouseup', () => {
+          if (!dragging) return
+          dragging = false
+          panel.classList.remove('dragging')
+        })
+      })
     }
 
     // ========================================
@@ -1768,8 +2041,9 @@
       this.animState.squish = 1
       this.animState.expression = 'happy'
 
-      // 好感度增加
-      this.addAffection(2)
+      // 好感度增加（点击时中速摇尾：比平常快，但不过激）
+      this.boostTailWag(0.95, 1.05, 1800, 'click')
+      this.addAffection(2, { tailBoost: false })
 
       // 粒子特效
       const rect = this.container.getBoundingClientRect()
@@ -1782,7 +2056,7 @@
         '喵呜！', '再摸摸嘛~', '(开心地转圈)',
         '你是我最喜欢的人~ ❤️', '摸头杀！',
       ]
-      this.say(messages[Math.floor(Math.random() * messages.length)])
+      this.say(messages[Math.floor(Math.random() * messages.length)], { slowTailDuringSpeech: true })
 
       setTimeout(() => {
         if (this.currentState !== 'sleeping') {
@@ -1796,7 +2070,7 @@
       this.animState.expression = 'surprised'
       this.animState.blushIntensity = 0.7
       this.endIdleBehavior()
-      this.addAffection(3)
+      this.addAffection(3, { tailBoost: false })
 
       const rect = this.container.getBoundingClientRect()
       this.particles.emit(rect.left + this.config.size / 2, rect.top + this.config.size / 3, 'star', 8)
@@ -1926,6 +2200,7 @@
     }
 
     doSleep() {
+      this.animState.rotation = 0
       this.currentState = 'sleeping'
       this.animState.expression = 'sleep'
       this.animState.eyeOpen = 0
@@ -1934,41 +2209,79 @@
     }
 
     hidePet() {
+      this.container.classList.remove('physics-active')
       this.container.classList.add('hidden')
       this.showPetBtn.classList.remove('hidden')
+      this.positionPomodoroMini()
+      this.updateOverlayState()
     }
 
     showPet() {
       this.container.classList.remove('hidden')
       this.showPetBtn.classList.add('hidden')
+      this.markUserAction()
+      this.positionPomodoroMini()
+      this.updateOverlayState()
       this.say('我回来啦~ 🐱')
     }
 
     resetPosition() {
-      this.config.posX = window.innerWidth - this.config.size - 40
-      this.config.posY = window.innerHeight - this.config.size - 40
+      const targetX = window.innerWidth - this.config.size - 40
+      const targetY = window.innerHeight - this.config.size - 40
+      const { x, y } = this.getClampedPetPosition(targetX, targetY)
+      this.config.posX = x
+      this.config.posY = y
       this.container.style.left = this.config.posX + 'px'
       this.container.style.top = this.config.posY + 'px'
       this.isPhysicsActive = false
+      this.animState.rotation = 0
+      this.container.classList.remove('physics-active')
       this.velocity = { x: 0, y: 0 }
       this.saveConfig()
       this.say('回到原位啦~')
     }
 
     clampPosition() {
-      const maxX = window.innerWidth - this.config.size
-      const maxY = window.innerHeight - this.config.size
-      this.config.posX = Math.max(0, Math.min(this.config.posX, maxX))
-      this.config.posY = Math.max(0, Math.min(this.config.posY, maxY))
+      const { x, y } = this.getClampedPetPosition(this.config.posX, this.config.posY)
+      this.config.posX = x
+      this.config.posY = y
       this.container.style.left = this.config.posX + 'px'
       this.container.style.top = this.config.posY + 'px'
+      const panels = ['pomodoro-panel', 'todo-panel']
+      panels.forEach((panelId) => {
+        const panel = document.getElementById(panelId)
+        if (!panel || panel.classList.contains('hidden')) return
+        const maxLeft = Math.max(10, window.innerWidth - panel.offsetWidth - 10)
+        const maxTop = Math.max(10, window.innerHeight - panel.offsetHeight - 10)
+        const nextLeft = Math.max(10, Math.min(parseInt(panel.style.left || '10', 10), maxLeft))
+        const nextTop = Math.max(10, Math.min(parseInt(panel.style.top || '10', 10), maxTop))
+        panel.style.left = nextLeft + 'px'
+        panel.style.top = nextTop + 'px'
+      })
+      this.positionPomodoroMini()
+      this.updateOverlayState()
     }
 
-    say(text) {
+    getClampedPetPosition(x, y) {
+      const maxX = Math.max(0, window.innerWidth - this.config.size)
+      const maxY = Math.max(0, window.innerHeight - this.config.size)
+      return {
+        x: Math.max(0, Math.min(x, maxX)),
+        y: Math.max(0, Math.min(y, maxY)),
+      }
+    }
+
+    say(text, options = {}) {
+      const { slowTailDuringSpeech = false } = options
       this.speechBubble.textContent = text
       this.speechBubble.classList.remove('below')
       this.speechBubble.classList.remove('hidden')
       this.speechBubble.classList.add('show')
+      this.slowTailDuringSpeech = !!slowTailDuringSpeech
+      if (this.slowTailDuringSpeech) {
+        this.animState.tailSpeed = Math.min(this.animState.tailSpeed, SPEAKING_TAIL_SPEED)
+        this.animState.tailAmplitude = Math.min(this.animState.tailAmplitude, SPEAKING_TAIL_AMPLITUDE)
+      }
 
       const petRect = this.container.getBoundingClientRect()
       const bubbleRect = this.speechBubble.getBoundingClientRect()
@@ -1984,6 +2297,7 @@
         setTimeout(() => {
           this.speechBubble.classList.add('hidden')
           this.speechBubble.classList.remove('below')
+          this.slowTailDuringSpeech = false
         }, 300)
       }, 3500)
     }
@@ -2000,10 +2314,12 @@
       const maxTop = Math.max(margin, window.innerHeight - menuH - margin)
       this.contextMenu.style.left = Math.max(margin, Math.min(x, maxLeft)) + 'px'
       this.contextMenu.style.top = Math.max(margin, Math.min(y, maxTop)) + 'px'
+      this.updateOverlayState()
     }
 
     hideContextMenu() {
       this.contextMenu.classList.add('hidden')
+      this.updateOverlayState()
     }
 
     requestExit() {
@@ -2017,10 +2333,12 @@
       this.settingsPanel.classList.remove('hidden')
       this.updatePreviews()
       this.updateAffectionUI()
+      this.updateOverlayState()
     }
 
     closeSettings() {
       this.settingsPanel.classList.add('hidden')
+      this.updateOverlayState()
     }
 
     updatePreviews() {
@@ -2060,6 +2378,8 @@
             bodySwayX: 0, bodySwayY: 0,
             headBobY: 0, jumpPhase: 0,
             eyeSparkle: 0,
+            customAnimPhase: 0,
+            tailPhase: 0,
           }
           DefaultCatRenderer.draw(ctx, 80 * dpr, previewState)
           ctx.restore()
@@ -2125,6 +2445,7 @@
         this.currentState = 'idle'
         this.animState.expression = 'idle'
         this.animState.rotation = 0
+        this.container.classList.remove('physics-active')
         this.velocity = { x: 0, y: 0 }
         this.clampPosition()
         this.say('呼... 平安着陆！😵‍💫')
@@ -2132,18 +2453,178 @@
       }
     }
 
+    pickAutoWalkTarget() {
+      const maxX = Math.max(0, window.innerWidth - this.config.size)
+      const maxY = Math.max(0, window.innerHeight - this.config.size)
+      const curX = this.config.posX
+      const curY = this.config.posY
+      const headingLen = Math.hypot(this.walkVector.x, this.walkVector.y) || 1
+      const headingX = this.walkVector.x / headingLen
+      const headingY = this.walkVector.y / headingLen
+      const minTravel = Math.min(
+        Math.max(90, this.config.size * 0.45),
+        Math.max(90, Math.max(maxX, maxY) * 0.6),
+      )
+
+      let best = null
+      let bestScore = -Infinity
+      for (let i = 0; i < 12; i++) {
+        const tx = Math.random() * maxX
+        const ty = Math.random() * maxY
+        const dx = tx - curX
+        const dy = ty - curY
+        const dist = Math.hypot(dx, dy)
+        if (dist < minTravel) continue
+        const nx = dx / dist
+        const ny = dy / dist
+        const dot = nx * headingX + ny * headingY
+        const score = dist + Math.max(0, dot) * 180 - Math.max(0, -dot) * 260 + Math.random() * 50
+        if (score > bestScore) {
+          bestScore = score
+          best = { x: tx, y: ty }
+        }
+      }
+
+      if (!best) {
+        let farthest = { x: curX, y: curY }
+        let farthestDist = 0
+        for (let i = 0; i < 6; i++) {
+          const tx = Math.random() * maxX
+          const ty = Math.random() * maxY
+          const dist = Math.hypot(tx - curX, ty - curY)
+          if (dist > farthestDist) {
+            farthestDist = dist
+            farthest = { x: tx, y: ty }
+          }
+        }
+        best = farthest
+      }
+
+      this.walkTarget = best
+    }
+
+    startAutoWalk(now) {
+      if (this.container.classList.contains('hidden')) return
+      this.endIdleBehavior()
+      this.currentState = 'walking'
+      this.animState.expression = 'happy'
+      const angle = Math.random() * Math.PI * 2
+      this.walkVector = { x: Math.cos(angle), y: Math.sin(angle) }
+      this.walkTarget = null
+      this.walkStepPhase = 0
+      this.walkPauseUntil = now
+      this.pickAutoWalkTarget()
+      this.say('出去散散步~ 🐾')
+    }
+
+    stopAutoWalk() {
+      if (this.currentState !== 'walking') return
+      this.currentState = 'idle'
+      this.animState.expression = 'idle'
+      this.animState.pawLeftY = 0
+      this.animState.pawRightY = 0
+      this.animState.bodySwayX = 0
+      this.animState.headBobY = 0
+      this.walkTarget = null
+      this.walkPauseUntil = 0
+      this.saveConfig()
+    }
+
+    updateAutoWalk(now, speedMul, frameScale = 1) {
+      const isPomodoroFocusMode = this.pomodoro.isRunning && !this.pomodoro.isPaused && !this.pomodoro.isBreak
+      if (isPomodoroFocusMode) {
+        this.stopAutoWalk()
+        return
+      }
+
+      const inactiveMs = now - this.lastUserActionAt
+      const shouldWalk = inactiveMs >= this.autoWalkIdleDelay
+
+      if (!shouldWalk) {
+        this.stopAutoWalk()
+        return
+      }
+
+      if (this.currentState === 'dragging' || this.currentState === 'flying' || this.isPhysicsActive) return
+      if (this.currentState === 'idle' || this.currentState === 'sleeping') {
+        this.startAutoWalk(now)
+      }
+      if (this.currentState !== 'walking') return
+
+      const maxX = Math.max(0, window.innerWidth - this.config.size)
+      const maxY = Math.max(0, window.innerHeight - this.config.size)
+      let headingX = this.walkVector.x
+      let headingY = this.walkVector.y
+      let moved = false
+
+      if (now >= this.walkPauseUntil) {
+        if (!this.walkTarget) this.pickAutoWalkTarget()
+        if (this.walkTarget) {
+          const dx = this.walkTarget.x - this.config.posX
+          const dy = this.walkTarget.y - this.config.posY
+          const distance = Math.hypot(dx, dy)
+          if (distance <= 5) {
+            this.walkPauseUntil = now + 420 + Math.random() * 780
+            this.pickAutoWalkTarget()
+          } else {
+            const nx = dx / distance
+            const ny = dy / distance
+            const stepLen = Math.min(this.autoWalkSpeed * speedMul * frameScale, distance)
+            this.config.posX += nx * stepLen
+            this.config.posY += ny * stepLen
+            this.walkVector = { x: nx, y: ny }
+            headingX = nx
+            headingY = ny
+            moved = true
+          }
+        }
+      }
+
+      const clampedX = Math.max(0, Math.min(this.config.posX, maxX))
+      const clampedY = Math.max(0, Math.min(this.config.posY, maxY))
+      if (clampedX !== this.config.posX || clampedY !== this.config.posY) {
+        this.config.posX = clampedX
+        this.config.posY = clampedY
+        this.walkPauseUntil = now + 300 + Math.random() * 420
+        this.pickAutoWalkTarget()
+      }
+
+      if (!moved) {
+        const len = Math.hypot(headingX, headingY) || 1
+        headingX /= len
+        headingY /= len
+      }
+
+      const gait = moved ? 1 : 0.3
+      this.walkStepPhase += (moved ? 0.22 : 0.08) * speedMul * frameScale
+      const step = Math.sin(this.walkStepPhase) * gait
+      this.animState.pawLeftY = step * 0.9
+      this.animState.pawRightY = -step * 0.9
+      this.animState.bodySwayX = headingX * 0.35 * gait
+      this.animState.headBobY = -Math.abs(step) * 0.45
+      this.targetLookX = headingX * 0.45
+      this.targetLookY = headingY * 0.25
+      this.targetTilt = headingX * 1.8
+      this.container.style.left = this.config.posX + 'px'
+      this.container.style.top = this.config.posY + 'px'
+    }
+
     // ========================================
     // ★ 空闲行为系统
     // ========================================
-    updateIdleBehavior(now, speedMul) {
-      if (this.currentState !== 'idle') {
+    updateIdleBehavior(now, speedMul, deltaMs = IDEAL_FRAME_MS) {
+      if (this.currentState !== 'idle' && this.currentState !== 'walking') {
         if (this.idleBehavior !== 'none') this.endIdleBehavior()
         return
       }
-      this.idleBehaviorTimer += 16
+      if (this.currentState === 'walking') {
+        if (this.idleBehavior !== 'none') this.endIdleBehavior()
+        return
+      }
+      this.idleBehaviorTimer += deltaMs
       if (this.idleBehavior === 'none') {
         if (this.idleBehaviorTimer >= this.nextIdleBehaviorTime) {
-          const behaviors = ['earTwitch', 'lookAround', 'grooming', 'yawn', 'stretch', 'nod', 'kneading', 'tailChase']
+          const behaviors = ['earTwitch', 'lookAround', 'grooming', 'yawn', 'stretch', 'nod', 'kneading']
           this.idleBehavior = behaviors[Math.floor(Math.random() * behaviors.length)]
           this.idleBehaviorPhase = 0
           this.idleBehaviorTimer = 0
@@ -2151,7 +2632,7 @@
         }
         return
       }
-      this.idleBehaviorPhase += 0.02 * speedMul
+      this.idleBehaviorPhase += 0.02 * speedMul * (deltaMs / IDEAL_FRAME_MS)
       switch (this.idleBehavior) {
         case 'earTwitch':
           this.animState.earTwitchL = Math.sin(this.idleBehaviorPhase * 25) * (1 - this.idleBehaviorPhase / 2) * 2
@@ -2195,13 +2676,6 @@
           this.animState.expression = 'happy'
           this.animState.eyeOpen = 0.6
           break
-        case 'tailChase':
-          this.animState.tailSpeed = 3
-          this.animState.tailAmplitude = 2
-          this.targetLookX = Math.sin(this.idleBehaviorPhase * 4) * 0.6
-          this.animState.bodySwayX = Math.sin(this.idleBehaviorPhase * 3) * 0.4
-          this.animState.expression = this.idleBehaviorPhase % 1 > 0.5 ? 'surprised' : 'happy'
-          break
       }
       if (this.idleBehaviorTimer >= this.idleBehaviorDuration) {
         this.endIdleBehavior()
@@ -2219,8 +2693,8 @@
       this.animState.headBobY = 0
       this.animState.bodySwayX = 0
       this.animState.bodySwayY = 0
-      this.animState.tailSpeed = 1
-      this.animState.tailAmplitude = 1
+      this.animState.tailSpeed = BASE_TAIL_SPEED
+      this.animState.tailAmplitude = BASE_TAIL_AMPLITUDE
       this.animState.pawLeftX = 0
       this.animState.pawRightX = 0
       this.animState.pawLeftY = 0
@@ -2236,22 +2710,33 @@
     // 动画循环（灵动增强）
     // ========================================
     requestFrame() {
-      requestAnimationFrame(() => this.update())
+      if (this.animationFrameId !== null) return
+      this.animationFrameId = requestAnimationFrame((timestamp) => {
+        this.animationFrameId = null
+        this.update(timestamp)
+      })
     }
 
-    update() {
+    update(timestamp = performance.now()) {
       this.frameCount++
       const speedMul = this.config.speed / 100
+      if (!this.lastFrameTimestamp) this.lastFrameTimestamp = timestamp
+      let deltaMs = timestamp - this.lastFrameTimestamp
+      if (!Number.isFinite(deltaMs) || deltaMs <= 0) deltaMs = IDEAL_FRAME_MS
+      deltaMs = Math.min(deltaMs, MAX_FRAME_DELTA_MS)
+      this.lastFrameTimestamp = timestamp
+      const frameScale = deltaMs / IDEAL_FRAME_MS
       const now = Date.now()
-      const timeSec = now / 1000
+      this.animationTime += (deltaMs / 1000) * speedMul
+      const timeSec = this.animationTime
 
       // 呼吸动画
-      this.animState.breathe = Math.sin(timeSec * 2 * speedMul) * 0.5
+      this.animState.breathe = Math.sin(timeSec * 2) * 0.5
 
       // ★ 耳朵随机微动
       if (this.idleBehavior !== 'earTwitch' && this.idleBehavior !== 'lookAround') {
-        this.animState.earTwitchL += ((Math.random() - 0.5) * 0.2 - this.animState.earTwitchL * 0.03) * speedMul
-        this.animState.earTwitchR += ((Math.random() - 0.5) * 0.2 - this.animState.earTwitchR * 0.03) * speedMul
+        this.animState.earTwitchL += ((Math.random() - 0.5) * 0.2 - this.animState.earTwitchL * 0.03) * speedMul * frameScale
+        this.animState.earTwitchR += ((Math.random() - 0.5) * 0.2 - this.animState.earTwitchR * 0.03) * speedMul * frameScale
       }
 
       // ★ 瞳孔随情绪
@@ -2259,12 +2744,12 @@
       if (this.animState.expression === 'surprised') targetPupil = 1.6
       else if (this.animState.expression === 'happy') targetPupil = 0.85
       else if (this.animState.expression === 'sleep') targetPupil = 0.5
-      this.animState.pupilDilation += (targetPupil - this.animState.pupilDilation) * 0.08
+      this.animState.pupilDilation += (targetPupil - this.animState.pupilDilation) * Math.min(1, 0.08 * frameScale)
 
       // ★ 腮红渐变
       const timeSinceClick = now - this.lastInteraction
       const targetBlush = timeSinceClick < 3000 ? 0.55 : 0.2
-      this.animState.blushIntensity += (targetBlush - this.animState.blushIntensity) * 0.02
+      this.animState.blushIntensity += (targetBlush - this.animState.blushIntensity) * Math.min(1, 0.02 * frameScale)
 
       // ★ 胡须微动
       this.animState.whiskerTwitch = timeSec * 0.5 + Math.sin(timeSec * 3) * 0.03
@@ -2274,25 +2759,51 @@
 
       // ★ 身体微摇（空闲）
       if (this.currentState === 'idle' && this.idleBehavior === 'none') {
-        this.animState.bodySwayX += (Math.sin(timeSec * 0.5) * 0.2 - this.animState.bodySwayX) * 0.03
+        this.animState.bodySwayX += (Math.sin(timeSec * 0.5) * 0.2 - this.animState.bodySwayX) * Math.min(1, 0.03 * frameScale)
       }
 
       // ★ 眼睛闪烁
       if (this.animState.expression === 'happy' || this.affection.level >= 5) {
         this.animState.eyeSparkle = 0.3 + Math.sin(timeSec * 2) * 0.15
       } else {
-        this.animState.eyeSparkle *= 0.93
+        this.animState.eyeSparkle *= Math.pow(0.93, frameScale)
       }
 
       // ★ 尾巴情绪联动
-      if (this.idleBehavior !== 'tailChase') {
-        let tSpd = 1, tAmp = 1
-        if (this.animState.expression === 'happy') { tSpd = 2.5; tAmp = 1.8 }
-        else if (this.animState.expression === 'surprised') { tSpd = 0.3; tAmp = 0.3 }
-        else if (this.animState.expression === 'sleep') { tSpd = 0.2; tAmp = 0.3 }
-        this.animState.tailSpeed += (tSpd - this.animState.tailSpeed) * 0.06
-        this.animState.tailAmplitude += (tAmp - this.animState.tailAmplitude) * 0.06
+      let tSpd = BASE_TAIL_SPEED, tAmp = BASE_TAIL_AMPLITUDE
+      if (this.animState.expression === 'happy') { tSpd = HAPPY_TAIL_SPEED; tAmp = HAPPY_TAIL_AMPLITUDE }
+      else if (this.animState.expression === 'surprised') { tSpd = 0.3; tAmp = 0.3 }
+      else if (this.animState.expression === 'sleep') { tSpd = 0.2; tAmp = 0.3 }
+      if (now < this.tailBoostUntil) {
+        if (this.tailBoostReason === 'click' || this.tailBoostReason === 'feed') {
+          tSpd = Math.max(tSpd, this.tailBoostSpeed)
+          tAmp = Math.max(tAmp, this.tailBoostAmplitude)
+        }
+      } else {
+        this.tailBoostSpeed = BASE_TAIL_SPEED
+        this.tailBoostAmplitude = BASE_TAIL_AMPLITUDE
+        this.tailBoostReason = ''
       }
+      tSpd = Math.min(tSpd, MAX_BOOST_TAIL_SPEED)
+      tAmp = Math.min(tAmp, MAX_BOOST_TAIL_AMPLITUDE)
+      if (this.currentState === 'walking') {
+        tSpd = Math.min(tSpd, 0.8)
+        tAmp = Math.min(tAmp, 1.05)
+      }
+      let tailLerp = 0.06
+      if (this.speechBubble.classList.contains('show') && this.slowTailDuringSpeech) {
+        // 说话时强制进入超低频小幅，并快速收敛，避免点击后的高频残留
+        tSpd = Math.min(tSpd, SPEAKING_TAIL_SPEED)
+        tAmp = Math.min(tAmp, SPEAKING_TAIL_AMPLITUDE)
+        tailLerp = SPEAKING_TAIL_LERP
+      }
+      const tailMix = Math.min(1, tailLerp * frameScale)
+      this.animState.tailSpeed += (tSpd - this.animState.tailSpeed) * tailMix
+      this.animState.tailAmplitude += (tAmp - this.animState.tailAmplitude) * tailMix
+      this.animState.tailSpeed = Math.max(0.08, Math.min(TAIL_SPEED_HARD_CAP, this.animState.tailSpeed))
+      this.animState.tailAmplitude = Math.max(0.3, Math.min(TAIL_AMPLITUDE_HARD_CAP, this.animState.tailAmplitude))
+      this.animState.tailPhase += (deltaMs / 360) * this.animState.tailSpeed
+      if (this.animState.tailPhase >= Math.PI * 2) this.animState.tailPhase %= (Math.PI * 2)
 
       // ★ 耳朵情绪联动
       if (this.idleBehavior !== 'yawn') {
@@ -2300,11 +2811,11 @@
         if (this.animState.expression === 'surprised') targetFlatten = 0
         else if (this.animState.expression === 'sleep') targetFlatten = 0.8
         else if (this.animState.expression === 'happy') targetFlatten = 0.15
-        this.animState.earFlatten += (targetFlatten - this.animState.earFlatten) * 0.05
+        this.animState.earFlatten += (targetFlatten - this.animState.earFlatten) * Math.min(1, 0.05 * frameScale)
       }
 
       // 眨眼
-      this.blinkTimer += 16 * speedMul
+      this.blinkTimer += deltaMs * speedMul
       if (this.blinkTimer > this.blinkInterval) {
         this.blinkTimer = 0
         this.blinkInterval = this.randomBlinkInterval()
@@ -2312,7 +2823,7 @@
       }
 
       // 鼠标跟随
-      if (this.config.follow && this.currentState !== 'sleeping' && this.currentState !== 'dragging' && this.currentState !== 'flying' && this.idleBehavior !== 'lookAround' && this.idleBehavior !== 'grooming' && this.idleBehavior !== 'tailChase') {
+      if (this.config.follow && this.currentState !== 'sleeping' && this.currentState !== 'dragging' && this.currentState !== 'flying' && this.idleBehavior !== 'lookAround' && this.idleBehavior !== 'grooming') {
         const rect = this.container.getBoundingClientRect()
         const centerX = rect.left + rect.width / 2
         const centerY = rect.top + rect.height / 2
@@ -2329,20 +2840,20 @@
       }
 
       // 平滑插值
-      const lerp = 0.08 * speedMul
+      const lerp = Math.min(1, 0.08 * speedMul * frameScale)
       this.animState.lookX += (this.targetLookX - this.animState.lookX) * lerp
       this.animState.lookY += (this.targetLookY - this.animState.lookY) * lerp
       this.animState.tilt += (this.targetTilt - this.animState.tilt) * lerp
 
       // 挤压恢复
       if (this.animState.squish > 0) {
-        this.animState.squish *= 0.9
+        this.animState.squish *= Math.pow(0.9, frameScale)
         if (this.animState.squish < 0.01) this.animState.squish = 0
       }
 
       // 特殊状态更新
       if (this.currentState === 'waving') {
-        this.wavePhase += 0.15 * speedMul
+        this.wavePhase += 0.15 * speedMul * frameScale
         this.animState.pawRightX = Math.sin(this.wavePhase * 5) * 1.5
         this.animState.pawRightY = -Math.abs(Math.sin(this.wavePhase * 3))
         if (this.wavePhase > Math.PI * 2) {
@@ -2357,7 +2868,7 @@
       }
 
       if (this.currentState === 'spinning') {
-        this.spinAngle += 12 * speedMul
+        this.spinAngle += 12 * speedMul * frameScale
         this.animState.rotation = this.spinAngle
         if (this.spinAngle >= 360) {
           this.animState.rotation = 0
@@ -2368,11 +2879,19 @@
       // 物理
       if (this.currentState === 'flying') {
         this.updatePhysics()
-        this.animState.rotation = (this.animState.rotation + this.velocity.x * 1.2) % 360
+        if (this.currentState === 'flying') {
+          this.animState.rotation = (this.animState.rotation + this.velocity.x * 1.2) % 360
+        }
       }
 
+      this.updateAutoWalk(now, speedMul, frameScale)
+
       // 自动入睡
-      if (this.currentState === 'idle' && (now - this.lastInteraction) > this.config.sleepDelay * 1000) {
+      if (
+        this.currentState === 'idle' &&
+        (now - this.lastInteraction) > this.config.sleepDelay * 1000 &&
+        (now - this.lastUserActionAt) < this.autoWalkIdleDelay
+      ) {
         this.currentState = 'sleeping'
         this.animState.expression = 'sleep'
         this.endIdleBehavior()
@@ -2384,22 +2903,25 @@
       }
 
       // ★ 空闲行为系统
-      this.updateIdleBehavior(now, speedMul)
+      this.updateIdleBehavior(now, speedMul, deltaMs)
 
       // 随机语录
-      this.quoteTimer += 16
+      this.quoteTimer += deltaMs
       if (this.quoteTimer >= this.quoteInterval && this.currentState === 'idle') {
         this.quoteTimer = 0
         this.quoteInterval = 120000 + Math.random() * 180000
         this.showRandomQuote()
       }
 
-      this.animState.customAnimPhase = timeSec * speedMul
+      this.animState.customAnimPhase = timeSec
 
       // 粒子 + 渲染
       this.particles.update()
       this.render()
       this.particles.render()
+      if (this.pomodoroMini && !this.pomodoroMini.classList.contains('hidden')) {
+        this.positionPomodoroMini()
+      }
       this.requestFrame()
     }
 

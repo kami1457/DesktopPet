@@ -85,6 +85,17 @@ body {
   transition: opacity 0.3s ease;
 }
 
+.interaction-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: transparent;
+}
+
+.interaction-layer.hidden {
+  display: none !important;
+}
+
 #pet-container:active {
   cursor: grabbing;
 }
@@ -119,6 +130,7 @@ body {
   transition: opacity 0.3s ease, transform 0.3s ease;
   max-width: 280px;
   word-break: break-word;
+  z-index: 4;
 }
 
 .speech-bubble.show {
@@ -225,6 +237,44 @@ body {
   font-size: 10px;
   font-weight: 600;
   color: var(--primary);
+}
+
+.pomodoro-mini {
+  position: fixed;
+  left: 20px;
+  top: 20px;
+  transform: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 11px;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 9998;
+  opacity: 0.95;
+}
+
+.pomodoro-mini.hidden {
+  display: none !important;
+}
+
+.pomodoro-mini-phase {
+  color: var(--text-light);
+  white-space: nowrap;
+}
+
+.pomodoro-mini-time {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  color: var(--primary);
+  min-width: 44px;
+  text-align: right;
 }
 
 /* ============================================
@@ -751,12 +801,18 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
+  cursor: move;
 }
 
 .mini-panel-header h3 {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
+  pointer-events: none;
+}
+
+.mini-panel.dragging {
+  user-select: none;
 }
 
 .mini-panel-body {
